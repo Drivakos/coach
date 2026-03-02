@@ -10,51 +10,67 @@ import SwiftData
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
+    @Query(sort: \FoodLog.loggedAt) private var allLogs: [FoodLog]
+    @State private var showSearch = false
+    @State private var logToEdit: FoodLog?
+    @State private var selectedDate = Date()
+
+    private var selectedDayLogs: [FoodLog] {
+        let start = Calendar.current.startOfDay(for: selectedDate)
+        let end = Calendar.current.date(byAdding: .day, value: 1, to: start)!
+        return allLogs.filter { $0.loggedAt >= start && $0.loggedAt < end }
+    }
+
+    private var totalCalories: Double {
+        selectedDayLogs.reduce(0) { $0 + $1.calories }
+    }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationStack {
             List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
+                Section(header: Text("\(Int(totalCalories)) kcal")) {
+                    ForEach(selectedDayLogs) { log in
+                        Button {
+                            logToEdit = log
+                        } label: {
+                            FoodLogRow(log: log)
+                        }
+                        .buttonStyle(.plain)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button(role: .destructive) {
+                                modelContext.delete(log)
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                        }
                     }
                 }
-                .onDelete(perform: deleteItems)
             }
-#if os(macOS)
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
-#endif
+            .safeAreaInset(edge: .top, spacing: 0) {
+                VStack(spacing: 0) {
+                    WeekStrip(selectedDate: $selectedDate)
+                    Divider()
+                }
+                .background(.bar)
+            }
+            .navigationTitle("Today")
             .toolbar {
-#if os(iOS)
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    EditButton()
-                }
-#endif
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showSearch = true
+                    } label: {
+                        Label("Add Food", systemImage: "plus")
                     }
                 }
             }
-        } detail: {
-            Text("Select an item")
-        }
-    }
-
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(timestamp: Date())
-            modelContext.insert(newItem)
-        }
-    }
-
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(items[index])
+            .sheet(isPresented: $showSearch) {
+                FoodSearchSheet(logDate: selectedDate) { entry in
+                    modelContext.insert(entry)
+                    showSearch = false
+                }
+            }
+            .sheet(item: $logToEdit) { log in
+                EditServingSheet(log: log)
             }
         }
     }
@@ -62,5 +78,5 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
-        .modelContainer(for: Item.self, inMemory: true)
+        .modelContainer(for: FoodLog.self, inMemory: true)
 }
