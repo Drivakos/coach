@@ -6,27 +6,53 @@
 //
 
 import SwiftUI
-import SwiftData
+import Auth
+import Supabase
 
 @main
 struct coachApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            FoodLog.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
+    @State private var session = AuthSession()
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            Group {
+                switch session.state {
+                case .loading:
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                case .signedIn:
+                    ContentView()
+                case .signedOut:
+                    AuthView()
+                }
+            }
+            .environment(session)
         }
-        .modelContainer(sharedModelContainer)
+    }
+}
+
+// MARK: - Auth session observable
+
+enum AuthState { case loading, signedIn, signedOut }
+
+@Observable
+final class AuthSession {
+    var state: AuthState = .loading
+
+    init() {
+        Task {
+            for await (event, session) in supabase.auth.authStateChanges {
+                switch event {
+                case .initialSession:
+                    state = session != nil ? .signedIn : .signedOut
+                case .signedIn:
+                    state = .signedIn
+                case .signedOut:
+                    state = .signedOut
+                default:
+                    break
+                }
+            }
+        }
     }
 }

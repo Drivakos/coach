@@ -8,7 +8,7 @@ import SwiftUI
 struct ServingPickerView: View {
     let product: FoodProduct
     let logDate: Date
-    let onLog: (FoodLog) -> Void
+    let onLog: (FoodLogInsert) -> Void
 
     @State private var mode: Int = 0
     @State private var gramsText: String = "100"
@@ -81,7 +81,7 @@ struct ServingPickerView: View {
 
             Section {
                 Button("Log") {
-                    let entry = FoodLog(
+                    let entry = FoodLogInsert(
                         name: product.product_name ?? "Unknown",
                         brand: product.brands?.isEmpty == false ? product.brands : nil,
                         calories: scaledCalories,

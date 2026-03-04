@@ -10,7 +10,7 @@ struct FoodSearchSheet: View {
     @State private var viewModel = SearchViewModel()
     @State private var selectedProduct: FoodProduct?
     let logDate: Date
-    let onLog: (FoodLog) -> Void
+    let onLog: (FoodLogInsert) -> Void
 
     var body: some View {
         NavigationStack {

@@ -6,7 +6,8 @@
 import SwiftUI
 
 struct EditServingSheet: View {
-    @Bindable var log: FoodLog
+    let log: FoodLog
+    let onSave: (FoodLog) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var gramsText: String = ""
 
@@ -53,11 +54,13 @@ struct EditServingSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         guard newGrams > 0 else { dismiss(); return }
-                        log.calories *= ratio
-                        log.protein *= ratio
-                        log.carbs *= ratio
-                        log.fat *= ratio
-                        log.quantityGrams = newGrams
+                        var updated = log
+                        updated.calories *= ratio
+                        updated.protein *= ratio
+                        updated.carbs *= ratio
+                        updated.fat *= ratio
+                        updated.quantityGrams = newGrams
+                        onSave(updated)
                         dismiss()
                     }
                     .disabled(newGrams <= 0)

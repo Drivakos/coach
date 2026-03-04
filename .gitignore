@@ -1,0 +1,18 @@
+# Xcode per-user state (not shared between developers)
+xcuserdata/
+*.xcuserstate
+*.xcsettings
+
+# Build output
+DerivedData/
+build/
+
+# Swift Package Manager build cache
+.build/
+
+# Local secrets — never commit these
+Config.Debug.xcconfig
+Config.Release.xcconfig
+
+# macOS
+.DS_Store

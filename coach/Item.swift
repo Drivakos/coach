@@ -6,12 +6,12 @@
 //
 
 import Foundation
-import SwiftData
 
-// MARK: - SwiftData Model
+// MARK: - Supabase Model
 
-@Model
-final class FoodLog {
+struct FoodLog: Codable, Identifiable {
+    let id: UUID
+    let userId: UUID
     var name: String
     var brand: String?
     var calories: Double
@@ -19,20 +19,49 @@ final class FoodLog {
     var carbs: Double
     var fat: Double
     var servingSize: String?
-    var quantityGrams: Double = 100
+    var quantityGrams: Double
+    var loggedAt: Date
+    var createdAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case userId = "user_id"
+        case name
+        case brand
+        case calories
+        case protein = "protein_g"
+        case carbs = "carbs_g"
+        case fat = "fat_g"
+        case servingSize = "serving_size"
+        case quantityGrams = "quantity_grams"
+        case loggedAt = "logged_at"
+        case createdAt = "created_at"
+    }
+}
+
+// MARK: - Insert payload (no id/userId/createdAt — server generates them)
+
+struct FoodLogInsert: Encodable {
+    var name: String
+    var brand: String?
+    var calories: Double
+    var protein: Double
+    var carbs: Double
+    var fat: Double
+    var servingSize: String?
+    var quantityGrams: Double
     var loggedAt: Date
 
-    init(name: String, brand: String?, calories: Double, protein: Double,
-         carbs: Double, fat: Double, servingSize: String?, quantityGrams: Double = 100, loggedAt: Date) {
-        self.name = name
-        self.brand = brand
-        self.calories = calories
-        self.protein = protein
-        self.carbs = carbs
-        self.fat = fat
-        self.servingSize = servingSize
-        self.quantityGrams = quantityGrams
-        self.loggedAt = loggedAt
+    enum CodingKeys: String, CodingKey {
+        case name
+        case brand
+        case calories
+        case protein = "protein_g"
+        case carbs = "carbs_g"
+        case fat = "fat_g"
+        case servingSize = "serving_size"
+        case quantityGrams = "quantity_grams"
+        case loggedAt = "logged_at"
     }
 }
 

@@ -6,14 +6,14 @@
 //
 
 import SwiftUI
-import SwiftData
+import Supabase
 
 struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query(sort: \FoodLog.loggedAt) private var allLogs: [FoodLog]
+    @State private var allLogs: [FoodLog] = []
     @State private var showSearch = false
     @State private var logToEdit: FoodLog?
     @State private var selectedDate = Date()
+    @State private var isLoading = false
 
     private var selectedDayLogs: [FoodLog] {
         let start = Calendar.current.startOfDay(for: selectedDate)
@@ -38,7 +38,7 @@ struct ContentView: View {
                         .buttonStyle(.plain)
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                             Button(role: .destructive) {
-                                modelContext.delete(log)
+                                Task { await deleteLog(log) }
                             } label: {
                                 Image(systemName: "trash")
                             }
@@ -62,21 +62,96 @@ struct ContentView: View {
                         Label("Add Food", systemImage: "plus")
                     }
                 }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Sign Out") {
+                        Task { try? await supabase.auth.signOut() }
+                    }
+                }
             }
             .sheet(isPresented: $showSearch) {
-                FoodSearchSheet(logDate: selectedDate) { entry in
-                    modelContext.insert(entry)
+                FoodSearchSheet(logDate: selectedDate) { insert in
+                    Task { await addLog(insert) }
                     showSearch = false
                 }
             }
             .sheet(item: $logToEdit) { log in
-                EditServingSheet(log: log)
+                EditServingSheet(log: log) { updated in
+                    Task { await updateLog(updated) }
+                }
             }
+            .task(id: selectedDate) {
+                await fetchLogs()
+            }
+        }
+    }
+
+    // MARK: - Data operations
+
+    private func fetchLogs() async {
+        isLoading = true
+        do {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let logs: [FoodLog] = try await supabase
+                .from("food_logs")
+                .select()
+                .order("logged_at", ascending: false)
+                .execute()
+                .value
+            allLogs = logs
+        } catch {
+            print("fetchLogs error:", error)
+        }
+        isLoading = false
+    }
+
+    private func addLog(_ insert: FoodLogInsert) async {
+        do {
+            let log: FoodLog = try await supabase
+                .from("food_logs")
+                .insert(insert)
+                .select()
+                .single()
+                .execute()
+                .value
+            allLogs.append(log)
+        } catch {
+            print("addLog error:", error)
+        }
+    }
+
+    private func updateLog(_ log: FoodLog) async {
+        do {
+            let updated: FoodLog = try await supabase
+                .from("food_logs")
+                .update(log)
+                .eq("id", value: log.id)
+                .select()
+                .single()
+                .execute()
+                .value
+            if let idx = allLogs.firstIndex(where: { $0.id == log.id }) {
+                allLogs[idx] = updated
+            }
+        } catch {
+            print("updateLog error:", error)
+        }
+    }
+
+    private func deleteLog(_ log: FoodLog) async {
+        do {
+            try await supabase
+                .from("food_logs")
+                .delete()
+                .eq("id", value: log.id)
+                .execute()
+            allLogs.removeAll { $0.id == log.id }
+        } catch {
+            print("deleteLog error:", error)
         }
     }
 }
 
 #Preview {
     ContentView()
-        .modelContainer(for: FoodLog.self, inMemory: true)
 }
