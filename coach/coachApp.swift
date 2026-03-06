@@ -22,7 +22,7 @@ struct coachApp: App {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .signedIn:
                     if session.profileComplete {
-                        ContentView()
+                        MainTabView()
                     } else {
                         SetupWizardView(onComplete: {
                             session.profileComplete = true

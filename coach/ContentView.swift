@@ -62,11 +62,6 @@ struct ContentView: View {
                         Label("Add Food", systemImage: "plus")
                     }
                 }
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Sign Out") {
-                        Task { try? await supabase.auth.signOut() }
-                    }
-                }
             }
             .sheet(isPresented: $showSearch) {
                 FoodSearchSheet(logDate: selectedDate) { insert in
