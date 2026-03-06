@@ -24,6 +24,9 @@
 	<string>$(SUPABASE_URL)</string>
 	<key>SUPABASE_ANON_KEY</key>
 	<string>$(SUPABASE_ANON_KEY)</string>
+	<!-- HealthKit usage description -->
+	<key>NSHealthShareUsageDescription</key>
+	<string>Coach reads your daily step count to automatically fill in your morning check-in.</string>
 	<!-- iOS UI settings -->
 	<key>UIApplicationSceneManifest</key>
 	<dict>

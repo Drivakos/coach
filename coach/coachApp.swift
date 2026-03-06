@@ -8,10 +8,16 @@
 import SwiftUI
 import Auth
 import Supabase
+import UserNotifications
 
 @main
 struct coachApp: App {
     @State private var session = AuthSession()
+    @State private var appState = AppState()
+
+    init() {
+        UNUserNotificationCenter.current().delegate = NotificationService.shared
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -23,6 +29,7 @@ struct coachApp: App {
                 case .signedIn:
                     if session.profileComplete {
                         MainTabView()
+                            .environment(appState)
                     } else {
                         SetupWizardView(onComplete: {
                             session.profileComplete = true
@@ -33,6 +40,13 @@ struct coachApp: App {
                 }
             }
             .environment(session)
+            .task(id: session.state) {
+                guard session.state == .signedIn else { return }
+                appState.listenForNotificationTaps()
+                await appState.loadWeightUnit()
+                await NotificationService.shared.requestPermissionAndSchedule()
+                await WeeklySummaryService().rollUpIfNeeded()
+            }
         }
     }
 }

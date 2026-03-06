@@ -3,6 +3,7 @@ import Supabase
 
 // MARK: - Decodable models
 
+
 private struct UserProfile: Decodable {
     let email: String
     let full_name: String?
@@ -37,6 +38,7 @@ private struct AllergyRow: Decodable {
 // MARK: - View
 
 struct ProfileView: View {
+    @Environment(AppState.self) private var appState
     @State private var profile: UserProfile? = nil
     @State private var latestMetric: BodyMetric? = nil
     @State private var latestTarget: NutritionTarget? = nil
@@ -77,6 +79,7 @@ struct ProfileView: View {
                     email: profile?.email ?? "",
                     heightCm: profile?.height_cm ?? 170,
                     weightKg: latestMetric?.weight_kg ?? 70,
+                    weightUnit: appState.weightUnit,
                     dateOfBirth: parsedDOB(profile?.date_of_birth),
                     activityLevel: profile?.activity_level ?? "moderately_active",
                     initialPreferences: Set(preferences),
@@ -120,7 +123,7 @@ struct ProfileView: View {
                     ProfileRow(label: "Height", value: "\(Int(h)) cm")
                 }
                 if let w = latestMetric?.weight_kg {
-                    ProfileRow(label: "Weight", value: String(format: "%.1f kg", w))
+                    ProfileRow(label: "Weight", value: appState.weightUnit.formatted(w))
                 }
                 if let bf = latestMetric?.body_fat_pct {
                     ProfileRow(label: "Body Fat", value: String(format: "%.1f%%", bf))
@@ -161,6 +164,19 @@ struct ProfileView: View {
             if !allergies.isEmpty {
                 Section("Allergies") {
                     FlowTagRow(tags: allergies)
+                }
+            }
+
+            // Display settings
+            Section("Display") {
+                Picker("Weight Unit", selection: Bindable(appState).weightUnit) {
+                    ForEach(WeightUnit.allCases, id: \.self) { unit in
+                        Text(unit.rawValue.uppercased()).tag(unit)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: appState.weightUnit) { _, newUnit in
+                    Task { await appState.saveWeightUnit(newUnit) }
                 }
             }
         }
@@ -271,7 +287,8 @@ private struct ProfileEditSheet: View {
     private let originalEmail: String
 
     @State private var heightCm: Double
-    @State private var weightKg: Double
+    @State private var weightDisplay: Double  // stored in user's preferred unit
+    private let weightUnit: WeightUnit
     @State private var dateOfBirth: Date
     @State private var activityLevel: String
     @State private var preferences: Set<String>
@@ -294,14 +311,15 @@ private struct ProfileEditSheet: View {
 
     let onSaved: () async -> Void
 
-    init(fullName: String, email: String, heightCm: Double, weightKg: Double, dateOfBirth: Date,
-         activityLevel: String, initialPreferences: Set<String>, initialAllergies: Set<String>,
-         onSaved: @escaping () async -> Void) {
+    init(fullName: String, email: String, heightCm: Double, weightKg: Double, weightUnit: WeightUnit,
+         dateOfBirth: Date, activityLevel: String, initialPreferences: Set<String>,
+         initialAllergies: Set<String>, onSaved: @escaping () async -> Void) {
         _fullName = State(initialValue: fullName)
         _email = State(initialValue: email)
         originalEmail = email
         _heightCm = State(initialValue: heightCm)
-        _weightKg = State(initialValue: weightKg)
+        _weightDisplay = State(initialValue: weightUnit.convert(weightKg))
+        self.weightUnit = weightUnit
         _dateOfBirth = State(initialValue: dateOfBirth)
         _activityLevel = State(initialValue: activityLevel)
         _preferences = State(initialValue: initialPreferences)
@@ -359,11 +377,11 @@ private struct ProfileEditSheet: View {
                     HStack {
                         Text("Weight")
                         Spacer()
-                        TextField("kg", value: $weightKg, format: .number)
+                        TextField(weightUnit.rawValue, value: $weightDisplay, format: .number)
                             .keyboardType(.decimalPad)
                             .multilineTextAlignment(.trailing)
                             .frame(width: 70)
-                        Text("kg").foregroundStyle(.secondary)
+                        Text(weightUnit.rawValue).foregroundStyle(.secondary)
                     }
 
                     DatePicker("Date of Birth", selection: $dateOfBirth,
@@ -452,7 +470,7 @@ private struct ProfileEditSheet: View {
 
             // Trigger email change verification if the address changed
             if email != originalEmail {
-                try await supabase.auth.updateUser(user: UserAttributes(email: email))
+                try await supabase.auth.update(user: UserAttributes(email: email))
                 emailVerificationSent = true
             }
 
@@ -463,7 +481,7 @@ private struct ProfileEditSheet: View {
             }
             try await supabase
                 .from("body_metrics")
-                .insert(BodyMetricInsert(user_id: userId, weight_kg: weightKg))
+                .insert(BodyMetricInsert(user_id: userId, weight_kg: weightUnit.toKg(weightDisplay)))
                 .execute()
 
             // Replace food_preferences
@@ -579,4 +597,5 @@ private struct FlowTagRow: View {
 
 #Preview {
     ProfileView()
+        .environment(AppState())
 }
