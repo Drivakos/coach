@@ -16,3 +16,7 @@ Config.Release.xcconfig
 
 # macOS
 .DS_Store
+
+# Claude Code memory
+memory/
+DEPLOYMENT.md

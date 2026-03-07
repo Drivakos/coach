@@ -107,34 +107,32 @@ struct WeeklySummaryService {
         return results
     }
 
-    // MARK: - Auto rollup on Monday
+    // MARK: - Auto rollup on app launch
 
-    /// Runs on app launch. If today is Monday and last week's summary is missing, computes it.
+    /// Always recomputes the current week to keep it fresh.
+    /// On Mondays, also saves the previous week in case it was missed.
     func rollUpIfNeeded() async {
         let cal = Calendar(identifier: .iso8601)
         let today = Date()
 
-        // Only run on Mondays (weekday == 2 in ISO 8601)
-        guard cal.component(.weekday, from: today) == 2 else { return }
-
-        guard let lastMonday = cal.date(byAdding: .day, value: -7, to: today) else { return }
-        let lastMondayStr = CheckInService.dateFormatter.string(from: lastMonday)
-
+        // Always refresh current week
+        let thisWeekStr = CheckInService.mondayString(of: today)
         do {
-            struct IDOnly: Decodable { let id: UUID }
-            let existing: [IDOnly] = try await supabase
-                .from("weekly_summaries")
-                .select("id")
-                .eq("week_start", value: lastMondayStr)
-                .limit(1)
-                .execute()
-                .value
-
-            if existing.isEmpty {
-                try await computeAndSave(weekStart: lastMondayStr)
-            }
+            try await computeAndSave(weekStart: thisWeekStr)
         } catch {
-            print("WeeklySummaryService rollUpIfNeeded error:", error)
+            print("WeeklySummaryService rollUpIfNeeded (current) error:", error)
+        }
+
+        // On Mondays, also ensure previous week is saved
+        guard cal.component(.weekday, from: today) == 2,
+              let lastMonday = cal.date(byAdding: .day, value: -7, to: today)
+        else { return }
+
+        let lastMondayStr = CheckInService.dateFormatter.string(from: lastMonday)
+        do {
+            try await computeAndSave(weekStart: lastMondayStr)
+        } catch {
+            print("WeeklySummaryService rollUpIfNeeded (previous) error:", error)
         }
     }
 }

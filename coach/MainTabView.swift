@@ -12,6 +12,9 @@ struct MainTabView: View {
             Tab("Diary", systemImage: "fork.knife") {
                 ContentView()
             }
+            Tab("Plan", systemImage: "list.clipboard.fill") {
+                WeeklyPlanView()
+            }
             Tab("Progress", systemImage: "chart.line.uptrend.xyaxis") {
                 ProgressTabView()
             }

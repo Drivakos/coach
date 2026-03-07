@@ -11,6 +11,13 @@ struct CheckInService {
         return f
     }()
 
+    /// "MMM d" display formatter (e.g. "Mar 7") — shared across the app.
+    static let shortDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
+        return f
+    }()
+
     static func todayString() -> String {
         dateFormatter.string(from: Date())
     }

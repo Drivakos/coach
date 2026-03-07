@@ -44,7 +44,9 @@ struct coachApp: App {
                 appState.listenForNotificationTaps()
                 await appState.loadProfile()
                 await NotificationService.shared.requestPermissionAndSchedule()
-                await WeeklySummaryService().rollUpIfNeeded()
+                if let target = appState.nutritionTarget {
+                    await WeeklyPlanService().generateIfNeeded(goal: appState.goal, currentTarget: target)
+                }
             }
         }
     }

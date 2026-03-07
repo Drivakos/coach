@@ -1,4 +1,5 @@
 import SwiftUI
+import Charts
 
 
 struct DashboardView: View {
@@ -8,12 +9,25 @@ struct DashboardView: View {
     @State private var nutrition = FoodLogTotals()
     @State private var liveSteps: Int? = nil
     @State private var isLoading = true
+    @State private var weekCaloriePoints: [DailyCaloriePoint] = []
+    @State private var weekWeightPoints: [DailyWeightPoint] = []
+    @State private var weeklyMacros: WeeklyMacros? = nil
 
     private let checkInService = CheckInService()
     private let foodLogService = FoodLogService()
+    private let progressService = ProgressService()
 
-    /// Steps for display in the check-in card only.
     private var effectiveSteps: Int? { liveSteps ?? todayCheckIn?.steps }
+
+    private var coachInsights: [CoachInsight] {
+        guard let target = appState.nutritionTarget else { return [] }
+        return CoachEngine(
+            weightPoints: weekWeightPoints,
+            weeklyMacros: weeklyMacros,
+            target: target,
+            goal: appState.goal
+        ).generate()
+    }
 
     // MARK: - Body
 
@@ -22,6 +36,9 @@ struct DashboardView: View {
             List {
                 checkInCard
                 nutritionCard
+                if !coachInsights.isEmpty {
+                    insightsCard
+                }
             }
             .navigationTitle("Dashboard")
             .task { await loadAll() }
@@ -84,6 +101,10 @@ struct DashboardView: View {
                 }
                 .buttonStyle(.plain)
             }
+
+            if weekWeightPoints.count >= 2 {
+                WeightSparkline(points: weekWeightPoints, unit: appState.weightUnit)
+            }
         }
     }
 
@@ -115,6 +136,10 @@ struct DashboardView: View {
                     current: nutrition.fat, target: target.fatG,
                     unit: "g", color: .yellow
                 )
+
+                if !weekCaloriePoints.isEmpty {
+                    CalorieMiniChart(points: weekCaloriePoints, target: target.calories)
+                }
             } else {
                 Text("Complete your profile to set nutrition targets")
                     .foregroundStyle(.secondary).font(.subheadline)
@@ -122,21 +147,167 @@ struct DashboardView: View {
         }
     }
 
+    // MARK: - Insights card
+
+    @ViewBuilder
+    private var insightsCard: some View {
+        Section {
+            ForEach(coachInsights) { insight in
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: insight.icon)
+                        .foregroundStyle(insight.severity.color)
+                        .font(.subheadline)
+                        .frame(width: 22)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(insight.title).font(.subheadline.bold())
+                        Text(insight.message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        } header: {
+            Label("Coach Insights", systemImage: "brain.head.profile")
+        }
+    }
+
     // MARK: - Data loading
 
     private func loadAll() async {
         isLoading = true
-        async let checkInFetch = checkInService.fetchToday()
+        async let checkInFetch   = checkInService.fetchToday()
         async let nutritionFetch = foodLogService.fetchTotals(for: Date())
+        async let dashboardFetch = progressService.fetchLast7DayDashboardData()
+        async let weightsFetch   = progressService.fetchLast7DayWeights()
 
         do { todayCheckIn = try await checkInFetch }
         catch { print("DashboardView checkIn error:", error) }
 
         nutrition = (try? await nutritionFetch) ?? FoodLogTotals()
-        liveSteps = await HealthKitService.shared.fetchTodaySteps()
+
+        if let data = try? await dashboardFetch {
+            weekCaloriePoints = data.calories
+            weeklyMacros      = data.macros
+        }
+
+        weekWeightPoints = (try? await weightsFetch) ?? []
+        liveSteps        = await HealthKitService.shared.fetchTodaySteps()
         isLoading = false
     }
 }
+
+// MARK: - Weight sparkline (7-day trend)
+
+private struct WeightSparkline: View {
+    let points: [DailyWeightPoint]
+    let unit: WeightUnit
+
+    private var displayPoints: [(date: Date, value: Double)] {
+        points.map { (date: $0.date, value: unit.convert($0.weightKg)) }
+    }
+
+    private var yDomain: ClosedRange<Double> {
+        let values = displayPoints.map(\.value)
+        guard let lo = values.min(), let hi = values.max() else { return 0...100 }
+        let pad = Swift.max(0.3, (hi - lo) * 0.4)
+        return (lo - pad)...(hi + pad)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("7-day weight")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Chart {
+                ForEach(displayPoints, id: \.date) { pt in
+                    AreaMark(
+                        x: .value("Day", pt.date, unit: .day),
+                        y: .value("Weight", pt.value)
+                    )
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.blue.opacity(0.2), .blue.opacity(0)],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                    )
+                    .interpolationMethod(.catmullRom)
+
+                    LineMark(
+                        x: .value("Day", pt.date, unit: .day),
+                        y: .value("Weight", pt.value)
+                    )
+                    .foregroundStyle(.blue)
+                    .lineStyle(StrokeStyle(lineWidth: 2))
+                    .interpolationMethod(.catmullRom)
+
+                    PointMark(
+                        x: .value("Day", pt.date, unit: .day),
+                        y: .value("Weight", pt.value)
+                    )
+                    .foregroundStyle(.blue)
+                    .symbolSize(20)
+                }
+            }
+            .frame(height: 70)
+            .chartYScale(domain: yDomain)
+            .chartXAxis {
+                AxisMarks(values: .stride(by: .day)) { _ in
+                    AxisValueLabel(format: .dateTime.weekday(.narrow), centered: true)
+                        .font(.caption2)
+                }
+            }
+            .chartYAxis(.hidden)
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Calorie mini bar chart (7-day)
+
+private struct CalorieMiniChart: View {
+    let points: [DailyCaloriePoint]
+    let target: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("7-day calories")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Chart {
+                ForEach(points) { pt in
+                    BarMark(
+                        x: .value("Day", pt.date, unit: .day),
+                        y: .value("Cal", pt.calories)
+                    )
+                    .foregroundStyle(pt.calories > target + 200 ? Color.orange : Color.accentColor.opacity(0.8))
+                    .cornerRadius(4)
+                }
+                RuleMark(y: .value("Target", target))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                    .foregroundStyle(Color.secondary.opacity(0.6))
+                    .annotation(position: .top, alignment: .trailing) {
+                        Text("Goal")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .padding(.trailing, 4)
+                    }
+            }
+            .frame(height: 80)
+            .chartXAxis {
+                AxisMarks(values: .stride(by: .day)) { _ in
+                    AxisValueLabel(format: .dateTime.weekday(.narrow), centered: true)
+                        .font(.caption2)
+                }
+            }
+            .chartYAxis(.hidden)
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Macro progress row
 
 private struct MacroProgressRow: View {
     let label: String
@@ -161,6 +332,19 @@ private struct MacroProgressRow: View {
                 .tint(isOver ? .orange : color)
         }
         .padding(.vertical, 2)
+    }
+}
+
+// MARK: - Severity color
+
+private extension CoachInsight.Severity {
+    var color: Color {
+        switch self {
+        case .success: return .green
+        case .info:    return .blue
+        case .caution: return .orange
+        case .warning: return .red
+        }
     }
 }
 

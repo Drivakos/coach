@@ -1,5 +1,6 @@
 import SwiftUI
 import Supabase
+import PhotosUI
 
 struct DailyCheckInSheet: View {
     @Environment(\.dismiss) private var dismiss
@@ -12,11 +13,14 @@ struct DailyCheckInSheet: View {
     @State private var isSaving = false
     @State private var saveError: String?
     @State private var isLoadingSteps = true
+    @State private var selectedPhotoItem: PhotosPickerItem?
+    @State private var selectedPhotoData: Data?
 
     var existing: DailyCheckIn? = nil
     var onSaved: (DailyCheckIn) -> Void
 
     private let checkInService = CheckInService()
+    private let photosBucket = "progress-photos"
 
     var body: some View {
         NavigationStack {
@@ -118,18 +122,65 @@ struct DailyCheckInSheet: View {
     }
 
     private var photoSection: some View {
-        // TODO: Supabase Storage — add photo upload here
-        Section {
-            HStack {
-                Image(systemName: "camera.fill")
-                    .foregroundStyle(.secondary)
-                Text("Progress Photo")
-                Spacer()
-                Text("Coming soon")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+        Section("Progress Photo") {
+            if let data = selectedPhotoData, let uiImage = UIImage(data: data) {
+                HStack(spacing: 12) {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 64, height: 64)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Photo selected")
+                            .font(.subheadline)
+                        PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+                            Text("Change")
+                                .font(.caption)
+                        }
+                    }
+                    Spacer()
+                    Button(role: .destructive) {
+                        selectedPhotoItem = nil
+                        selectedPhotoData = nil
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            } else if let existingUrl = existing?.photoUrl {
+                HStack(spacing: 12) {
+                    AsyncImage(url: URL(string: existingUrl)) { image in
+                        image.resizable().scaledToFill()
+                    } placeholder: {
+                        Color(.secondarySystemBackground)
+                    }
+                    .frame(width: 64, height: 64)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    Text("Current photo")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+                        Text("Replace")
+                            .font(.caption)
+                    }
+                }
+            } else {
+                PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+                    Label("Add Progress Photo", systemImage: "camera.fill")
+                }
             }
-            .foregroundStyle(.secondary)
+        }
+        .onChange(of: selectedPhotoItem) { _, newItem in
+            Task {
+                guard let data = try? await newItem?.loadTransferable(type: Data.self) else { return }
+                if let image = UIImage(data: data) {
+                    selectedPhotoData = image.jpegData(compressionQuality: 0.75)
+                } else {
+                    selectedPhotoData = data
+                }
+            }
         }
     }
 
@@ -159,11 +210,13 @@ struct DailyCheckInSheet: View {
         saveError = nil
         do {
             let session = try await supabase.auth.session
+            let userId = session.user.id
+            let date = CheckInService.todayString()
             let weightKg: Double? = Double(weightInput).map { appState.weightUnit.toKg($0) }
 
             let payload = DailyCheckInUpsert(
-                userId: session.user.id,
-                date: CheckInService.todayString(),
+                userId: userId,
+                date: date,
                 weightKg: weightKg,
                 workoutCompleted: workoutCompleted,
                 workoutNotes: workoutNotes.isEmpty ? nil : workoutNotes,
@@ -171,6 +224,29 @@ struct DailyCheckInSheet: View {
             )
 
             let saved = try await checkInService.upsert(payload)
+
+            // Upload photo if one was selected
+            if let photoData = selectedPhotoData {
+                let path = "\(userId)/\(date).jpg"
+                try await supabase.storage
+                    .from(photosBucket)
+                    .upload(path, data: photoData, options: FileOptions(
+                        cacheControl: "3600",
+                        contentType: "image/jpeg",
+                        upsert: true
+                    ))
+                let publicURL = try supabase.storage
+                    .from(photosBucket)
+                    .getPublicURL(path: path)
+                struct PhotoUpdate: Encodable { let photo_url: String }
+                try await supabase
+                    .from("daily_checkins")
+                    .update(PhotoUpdate(photo_url: publicURL.absoluteString))
+                    .eq("user_id", value: userId)
+                    .eq("date", value: date)
+                    .execute()
+            }
+
             onSaved(saved)
             dismiss()
         } catch {

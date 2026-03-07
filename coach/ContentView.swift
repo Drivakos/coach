@@ -15,14 +15,8 @@ struct ContentView: View {
     @State private var errorMessage: String?
 
     private let service = FoodLogService()
-    private static let titleFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "MMM d"
-        return f
-    }()
-
     private var navigationTitle: String {
-        Calendar.current.isDateInToday(selectedDate) ? "Today" : Self.titleFormatter.string(from: selectedDate)
+        Calendar.current.isDateInToday(selectedDate) ? "Today" : CheckInService.shortDateFormatter.string(from: selectedDate)
     }
 
     private var totalCalories: Double {

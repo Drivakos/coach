@@ -36,7 +36,7 @@ struct StoredTarget {
 
 // MARK: - Private Decodable helpers (top-level to avoid Swift 6 actor-isolation warnings)
 
-private struct ProfileRow: Decodable { let weight_unit: String? }
+private struct ProfileRow: Decodable { let weight_unit: String?; let goal: String? }
 private struct TargetRow: Decodable {
     let calories: Double
     let protein_g: Double
@@ -54,6 +54,9 @@ final class AppState {
     /// User's preferred weight display unit, loaded from Supabase on sign-in.
     var weightUnit: WeightUnit = .kg
 
+    /// User's current goal, loaded from Supabase on sign-in.
+    var goal: Goal = .maintain
+
     /// Most recent stored nutrition targets, kept in sync with the DB.
     var nutritionTarget: StoredTarget? = nil
 
@@ -62,7 +65,7 @@ final class AppState {
     func loadProfile() async {
         do {
             async let pFetch: ProfileRow = supabase
-                .from("users").select("weight_unit").single().execute().value
+                .from("users").select("weight_unit, goal").single().execute().value
             async let tFetch: [TargetRow] = supabase
                 .from("nutrition_targets")
                 .select("calories, protein_g, carbs_g, fat_g")
@@ -72,6 +75,7 @@ final class AppState {
             let (p, targets) = try await (pFetch, tFetch)
 
             weightUnit = WeightUnit(rawValue: p.weight_unit ?? "kg") ?? .kg
+            goal = Goal(rawValue: p.goal ?? "maintain") ?? .maintain
             if let t = targets.first {
                 nutritionTarget = StoredTarget(
                     calories: t.calories,

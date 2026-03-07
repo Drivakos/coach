@@ -81,6 +81,66 @@ struct WeeklySummary: Identifiable, Decodable {
     }
 }
 
+// MARK: - Monthly Summary
+
+struct MonthlySummary: Identifiable, Decodable {
+    let id: UUID
+    let userId: UUID
+    let monthStart: String          // "yyyy-MM-dd" (first of month)
+
+    var monthStartDate: Date? { CheckInService.dateFormatter.date(from: monthStart) }
+    let avgWeightKg: Double?
+    let avgCalories: Double?
+    let avgProteinG: Double?
+    let avgCarbsG: Double?
+    let avgFatG: Double?
+    let totalWorkouts: Int?
+    let avgSteps: Double?
+    let daysLogged: Int?
+    let createdAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case userId = "user_id"
+        case monthStart = "month_start"
+        case avgWeightKg = "avg_weight_kg"
+        case avgCalories = "avg_calories"
+        case avgProteinG = "avg_protein_g"
+        case avgCarbsG = "avg_carbs_g"
+        case avgFatG = "avg_fat_g"
+        case totalWorkouts = "total_workouts"
+        case avgSteps = "avg_steps"
+        case daysLogged = "days_logged"
+        case createdAt = "created_at"
+    }
+}
+
+struct MonthlySummaryUpsert: Encodable {
+    let userId: UUID
+    let monthStart: String
+    let avgWeightKg: Double?
+    let avgCalories: Double?
+    let avgProteinG: Double?
+    let avgCarbsG: Double?
+    let avgFatG: Double?
+    let totalWorkouts: Int?
+    let avgSteps: Double?
+    let daysLogged: Int
+
+    enum CodingKeys: String, CodingKey {
+        case userId = "user_id"
+        case monthStart = "month_start"
+        case avgWeightKg = "avg_weight_kg"
+        case avgCalories = "avg_calories"
+        case avgProteinG = "avg_protein_g"
+        case avgCarbsG = "avg_carbs_g"
+        case avgFatG = "avg_fat_g"
+        case totalWorkouts = "total_workouts"
+        case avgSteps = "avg_steps"
+        case daysLogged = "days_logged"
+    }
+}
+
 struct WeeklySummaryUpsert: Encodable {
     let userId: UUID
     let weekStart: String
