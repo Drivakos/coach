@@ -43,7 +43,7 @@ struct coachApp: App {
             .task(id: session.state) {
                 guard session.state == .signedIn else { return }
                 appState.listenForNotificationTaps()
-                await appState.loadWeightUnit()
+                await appState.loadProfile()
                 await NotificationService.shared.requestPermissionAndSchedule()
                 await WeeklySummaryService().rollUpIfNeeded()
             }

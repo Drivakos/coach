@@ -27,6 +27,13 @@ enum WeightUnit: String, CaseIterable {
     }
 }
 
+struct StoredTarget {
+    var calories: Double
+    var proteinG: Double
+    var carbsG: Double
+    var fatG: Double
+}
+
 // MARK: - App State
 
 @Observable
@@ -37,18 +44,41 @@ final class AppState {
     /// User's preferred weight display unit, loaded from Supabase on sign-in.
     var weightUnit: WeightUnit = .kg
 
-    func loadWeightUnit() async {
+    /// Most recent stored nutrition targets, kept in sync with the DB.
+    var nutritionTarget: StoredTarget? = nil
+
+    // MARK: - Profile loading
+
+    func loadProfile() async {
+        struct ProfileRow: Decodable { let weight_unit: String? }
+        struct TargetRow: Decodable {
+            let calories: Double
+            let protein_g: Double
+            let carbs_g: Double
+            let fat_g: Double
+        }
         do {
-            struct UnitRow: Decodable { let weight_unit: String }
-            let row: UnitRow = try await supabase
-                .from("users")
-                .select("weight_unit")
-                .single()
-                .execute()
-                .value
-            weightUnit = WeightUnit(rawValue: row.weight_unit) ?? .kg
+            async let pFetch: ProfileRow = supabase
+                .from("users").select("weight_unit").single().execute().value
+            async let tFetch: [TargetRow] = supabase
+                .from("nutrition_targets")
+                .select("calories, protein_g, carbs_g, fat_g")
+                .order("effective_from", ascending: false)
+                .order("created_at", ascending: false)
+                .limit(1).execute().value
+            let (p, targets) = try await (pFetch, tFetch)
+
+            weightUnit = WeightUnit(rawValue: p.weight_unit ?? "kg") ?? .kg
+            if let t = targets.first {
+                nutritionTarget = StoredTarget(
+                    calories: t.calories,
+                    proteinG: t.protein_g,
+                    carbsG: t.carbs_g,
+                    fatG: t.fat_g
+                )
+            }
         } catch {
-            // Default to kg if fetch fails
+            print("AppState loadProfile error:", error)
         }
     }
 

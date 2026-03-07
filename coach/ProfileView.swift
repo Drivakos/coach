@@ -3,7 +3,6 @@ import Supabase
 
 // MARK: - Decodable models
 
-
 private struct UserProfile: Decodable {
     let email: String
     let full_name: String?
@@ -11,20 +10,14 @@ private struct UserProfile: Decodable {
     let date_of_birth: String?
     let sex: String?
     let activity_level: String?
+    let goal: String?
+    let macro_split: String?
 }
 
 private struct BodyMetric: Decodable {
     let weight_kg: Double?
     let body_fat_pct: Double?
     let recorded_at: String
-}
-
-private struct NutritionTarget: Decodable {
-    let calories: Double
-    let protein_g: Double
-    let carbs_g: Double
-    let fat_g: Double
-    let effective_from: String
 }
 
 private struct FoodPreference: Decodable {
@@ -41,7 +34,6 @@ struct ProfileView: View {
     @Environment(AppState.self) private var appState
     @State private var profile: UserProfile? = nil
     @State private var latestMetric: BodyMetric? = nil
-    @State private var latestTarget: NutritionTarget? = nil
     @State private var preferences: [String] = []
     @State private var allergies: [String] = []
     @State private var isLoading = true
@@ -81,7 +73,10 @@ struct ProfileView: View {
                     weightKg: latestMetric?.weight_kg ?? 70,
                     weightUnit: appState.weightUnit,
                     dateOfBirth: parsedDOB(profile?.date_of_birth),
+                    sex: profile?.sex ?? "male",
                     activityLevel: profile?.activity_level ?? "moderately_active",
+                    goal: profile?.goal ?? "maintain",
+                    macroSplit: profile?.macro_split ?? "moderate_carb",
                     initialPreferences: Set(preferences),
                     initialAllergies: Set(allergies),
                     onSaved: { await loadAll() }
@@ -137,19 +132,25 @@ struct ProfileView: View {
             }
 
             // Activity & goal
-            Section("Activity") {
+            Section("Activity & Goal") {
                 if let level = profile?.activity_level {
                     ProfileRow(label: "Activity Level", value: activityLabel(level))
+                }
+                if let goal = profile?.goal {
+                    ProfileRow(label: "Goal", value: goalLabel(goal))
+                }
+                if let split = profile?.macro_split {
+                    ProfileRow(label: "Macro Split", value: macroSplitLabel(split))
                 }
             }
 
             // Nutrition targets
-            if let target = latestTarget {
+            if let target = appState.nutritionTarget {
                 Section("Nutrition Targets") {
-                    ProfileRow(label: "Calories",  value: "\(Int(target.calories)) kcal")
-                    ProfileRow(label: "Protein",   value: "\(Int(target.protein_g)) g")
-                    ProfileRow(label: "Carbs",     value: "\(Int(target.carbs_g)) g")
-                    ProfileRow(label: "Fat",       value: "\(Int(target.fat_g)) g")
+                    ProfileRow(label: "Calories", value: "\(Int(target.calories)) kcal")
+                    ProfileRow(label: "Protein",  value: "\(Int(target.proteinG)) g")
+                    ProfileRow(label: "Carbs",    value: "\(Int(target.carbsG)) g")
+                    ProfileRow(label: "Fat",      value: "\(Int(target.fatG)) g")
                 }
             }
 
@@ -190,7 +191,7 @@ struct ProfileView: View {
         do {
             async let profileFetch: UserProfile = supabase
                 .from("users")
-                .select("email, full_name, height_cm, date_of_birth, sex, activity_level")
+                .select("email, full_name, height_cm, date_of_birth, sex, activity_level, goal, macro_split")
                 .single()
                 .execute()
                 .value
@@ -199,14 +200,6 @@ struct ProfileView: View {
                 .from("body_metrics")
                 .select("weight_kg, body_fat_pct, recorded_at")
                 .order("recorded_at", ascending: false)
-                .limit(1)
-                .execute()
-                .value
-
-            async let targetFetch: [NutritionTarget] = supabase
-                .from("nutrition_targets")
-                .select("calories, protein_g, carbs_g, fat_g, effective_from")
-                .order("effective_from", ascending: false)
                 .limit(1)
                 .execute()
                 .value
@@ -223,13 +216,12 @@ struct ProfileView: View {
                 .execute()
                 .value
 
-            let (p, metrics, targets, prefs, allergyRows) = try await (
-                profileFetch, metricFetch, targetFetch, prefFetch, allergyFetch
+            let (p, metrics, prefs, allergyRows) = try await (
+                profileFetch, metricFetch, prefFetch, allergyFetch
             )
 
             profile = p
             latestMetric = metrics.first
-            latestTarget = targets.first
             preferences = prefs.map(\.preference)
             allergies = allergyRows.map(\.allergen)
         } catch {
@@ -260,6 +252,23 @@ struct ProfileView: View {
         }
     }
 
+    private func goalLabel(_ id: String) -> String {
+        switch id {
+        case "lose_weight":  return "Lose Weight"
+        case "maintain":     return "Maintain Weight"
+        case "gain_muscle":  return "Gain Muscle"
+        default:             return id
+        }
+    }
+
+    private func macroSplitLabel(_ id: String) -> String {
+        switch id {
+        case "lower_carb":  return "Lower Carb"
+        case "higher_carb": return "Higher Carb"
+        default:            return "Moderate Carb"
+        }
+    }
+
     private func age(from dobString: String) -> Int? {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
@@ -281,16 +290,22 @@ struct ProfileView: View {
 
 private struct ProfileEditSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppState.self) private var appState
 
     @State private var fullName: String
     @State private var email: String
     private let originalEmail: String
 
     @State private var heightCm: Double
-    @State private var weightDisplay: Double  // stored in user's preferred unit
+    @State private var weightDisplay: Double
     private let weightUnit: WeightUnit
+    private let sex: String
+
     @State private var dateOfBirth: Date
     @State private var activityLevel: String
+    @State private var goal: String
+    @State private var macroSplit: String
+
     @State private var preferences: Set<String>
     @State private var allergies: Set<String>
 
@@ -298,12 +313,24 @@ private struct ProfileEditSheet: View {
     @State private var saveError: String?
     @State private var emailVerificationSent = false
 
-    private let activityLevels: [(id: String, label: String, icon: String)] = [
-        ("sedentary",         "Sedentary",          "sofa"),
-        ("lightly_active",    "Lightly Active",     "figure.walk"),
-        ("moderately_active", "Moderately Active",  "figure.run"),
-        ("very_active",       "Very Active",        "figure.highintensity.intervaltraining"),
-        ("extra_active",      "Extra Active",       "bolt.fill"),
+    private let activityLevels: [(id: String, label: String, icon: String, description: String)] = [
+        ("sedentary",         "Sedentary",          "sofa",                                   "Little or no exercise, desk job"),
+        ("lightly_active",    "Lightly Active",     "figure.walk",                            "Light exercise 1–3 days/week"),
+        ("moderately_active", "Moderately Active",  "figure.run",                             "Moderate exercise 3–5 days/week"),
+        ("very_active",       "Very Active",        "figure.highintensity.intervaltraining",  "Hard exercise 6–7 days/week"),
+        ("extra_active",      "Extra Active",       "bolt.fill",                              "Very hard exercise & physical job"),
+    ]
+
+    private let goalOptions: [(id: String, label: String, icon: String, description: String)] = [
+        ("lose_weight",  "Lose Weight",      "arrow.down.circle.fill",  "~300 kcal deficit below your maintenance"),
+        ("maintain",     "Maintain Weight",  "equal.circle.fill",       "Calories matched to your maintenance TDEE"),
+        ("gain_muscle",  "Gain Muscle",      "arrow.up.circle.fill",    "~300 kcal surplus above your maintenance"),
+    ]
+
+    private let macroSplitOptions: [(id: String, label: String, description: String)] = [
+        ("lower_carb",   "Lower Carb",   "40% protein · 40% fat · 20% carbs"),
+        ("moderate_carb","Moderate Carb","30% protein · 35% fat · 35% carbs"),
+        ("higher_carb",  "Higher Carb",  "30% protein · 20% fat · 50% carbs"),
     ]
 
     private let preferenceOptions = ["vegan", "vegetarian", "keto", "paleo", "gluten-free", "dairy-free"]
@@ -312,16 +339,20 @@ private struct ProfileEditSheet: View {
     let onSaved: () async -> Void
 
     init(fullName: String, email: String, heightCm: Double, weightKg: Double, weightUnit: WeightUnit,
-         dateOfBirth: Date, activityLevel: String, initialPreferences: Set<String>,
-         initialAllergies: Set<String>, onSaved: @escaping () async -> Void) {
+         dateOfBirth: Date, sex: String, activityLevel: String, goal: String, macroSplit: String,
+         initialPreferences: Set<String>, initialAllergies: Set<String>,
+         onSaved: @escaping () async -> Void) {
         _fullName = State(initialValue: fullName)
         _email = State(initialValue: email)
         originalEmail = email
         _heightCm = State(initialValue: heightCm)
         _weightDisplay = State(initialValue: weightUnit.convert(weightKg))
         self.weightUnit = weightUnit
+        self.sex = sex
         _dateOfBirth = State(initialValue: dateOfBirth)
         _activityLevel = State(initialValue: activityLevel)
+        _goal = State(initialValue: goal)
+        _macroSplit = State(initialValue: macroSplit)
         _preferences = State(initialValue: initialPreferences)
         _allergies = State(initialValue: initialAllergies)
         self.onSaved = onSaved
@@ -330,73 +361,19 @@ private struct ProfileEditSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Account") {
-                    HStack {
-                        Text("Name")
-                        Spacer()
-                        TextField("Full name", text: $fullName)
-                            .multilineTextAlignment(.trailing)
-                            .foregroundStyle(.primary)
-                    }
+                accountSection
+                bodyStatsSection
+                activitySection
+                goalSection
+                macroSplitSection
 
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text("Email")
-                            Spacer()
-                            TextField("Email address", text: $email)
-                                .multilineTextAlignment(.trailing)
-                                .keyboardType(.emailAddress)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                        }
-                        if email != originalEmail {
-                            Text("A verification link will be sent to this address. Your email changes after you confirm it.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    if emailVerificationSent {
-                        Label("Verification email sent to \(email)", systemImage: "envelope.badge.checkmark")
-                            .font(.caption)
-                            .foregroundStyle(.green)
-                    }
-                }
-
-                Section("Body Stats") {
-                    HStack {
-                        Text("Height")
-                        Spacer()
-                        TextField("cm", value: $heightCm, format: .number)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 70)
-                        Text("cm").foregroundStyle(.secondary)
-                    }
-
-                    HStack {
-                        Text("Weight")
-                        Spacer()
-                        TextField(weightUnit.rawValue, value: $weightDisplay, format: .number)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 70)
-                        Text(weightUnit.rawValue).foregroundStyle(.secondary)
-                    }
-
-                    DatePicker("Date of Birth", selection: $dateOfBirth,
-                               in: ...Date(), displayedComponents: .date)
-                }
-
-                Section("Activity Level") {
-                    ForEach(activityLevels, id: \.id) { level in
-                        ActivityEditRow(
-                            icon: level.icon,
-                            label: level.label,
-                            isSelected: activityLevel == level.id
-                        )
-                        .contentShape(Rectangle())
-                        .onTapGesture { activityLevel = level.id }
+                Section {
+                    Label {
+                        Text("Calorie and macro targets are recalculated every time you save.")
+                            .font(.subheadline)
+                    } icon: {
+                        Image(systemName: "info.circle.fill")
+                            .foregroundStyle(.tint)
                     }
                 }
 
@@ -440,93 +417,255 @@ private struct ProfileEditSheet: View {
         }
     }
 
+    // MARK: - Form sections
+
+    private var accountSection: some View {
+        Section("Account") {
+            HStack {
+                Text("Name")
+                Spacer()
+                TextField("Full name", text: $fullName)
+                    .multilineTextAlignment(.trailing)
+                    .foregroundStyle(.primary)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Email")
+                    Spacer()
+                    TextField("Email address", text: $email)
+                        .multilineTextAlignment(.trailing)
+                        .keyboardType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
+                if email != originalEmail {
+                    Text("A verification link will be sent to this address. Your email changes after you confirm it.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if emailVerificationSent {
+                Label("Verification email sent to \(email)", systemImage: "envelope.badge.checkmark")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+            }
+        }
+    }
+
+    private var bodyStatsSection: some View {
+        Section("Body Stats") {
+            HStack {
+                Text("Height")
+                Spacer()
+                TextField("cm", value: $heightCm, format: .number)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 70)
+                Text("cm").foregroundStyle(.secondary)
+            }
+
+            HStack {
+                Text("Weight")
+                Spacer()
+                TextField(weightUnit.rawValue, value: $weightDisplay, format: .number)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 70)
+                Text(weightUnit.rawValue).foregroundStyle(.secondary)
+            }
+
+            DatePicker("Date of Birth", selection: $dateOfBirth,
+                       in: ...Date(), displayedComponents: .date)
+        }
+    }
+
+    private var activitySection: some View {
+        Section("Activity Level") {
+            ForEach(activityLevels, id: \.id) { level in
+                ActivityEditRow(
+                    icon: level.icon,
+                    label: level.label,
+                    description: level.description,
+                    isSelected: activityLevel == level.id
+                )
+                .contentShape(Rectangle())
+                .onTapGesture { activityLevel = level.id }
+            }
+        }
+    }
+
+    private var goalSection: some View {
+        Section("Goal") {
+            ForEach(goalOptions, id: \.id) { option in
+                GoalEditRow(
+                    icon: option.icon,
+                    label: option.label,
+                    description: option.description,
+                    isSelected: goal == option.id
+                )
+                .contentShape(Rectangle())
+                .onTapGesture { goal = option.id }
+            }
+        }
+    }
+
+    private var macroSplitSection: some View {
+        Section("Macro Split") {
+            ForEach(macroSplitOptions, id: \.id) { option in
+                let t = previewTargets(for: option.id)
+                MacroSplitRow(
+                    label: option.label,
+                    description: option.description,
+                    preview: "\(Int(t.proteinG))p · \(Int(t.carbsG))c · \(Int(t.fatG))f",
+                    isSelected: macroSplit == option.id
+                )
+                .contentShape(Rectangle())
+                .onTapGesture { macroSplit = option.id }
+            }
+        }
+    }
+
+    private func previewTargets(for split: String) -> TDEECalculator.Targets {
+        let age = Calendar.current.dateComponents([.year], from: dateOfBirth, to: Date()).year ?? 30
+        return TDEECalculator.calculate(
+            sex: sex,
+            weightKg: weightUnit.toKg(weightDisplay),
+            heightCm: heightCm,
+            age: age,
+            activityLevel: activityLevel,
+            goal: goal,
+            macroSplit: split
+        )
+    }
+
+    // MARK: - Save
+
     private func save() async {
+        // Capture ALL form state synchronously before any await.
+        // @State vars read after suspension points may return stale values on struct copies.
+        let snapFullName      = fullName
+        let snapEmail         = email
+        let snapHeightCm      = heightCm
+        let snapWeightKg      = weightUnit.toKg(weightDisplay)
+        let snapDOB           = dateOfBirth
+        let snapActivityLevel = activityLevel
+        let snapGoal          = goal
+        let snapMacroSplit    = macroSplit
+        let snapSex           = sex
+        let snapPreferences   = preferences
+        let snapAllergies     = allergies
+
         isSaving = true
         saveError = nil
         emailVerificationSent = false
         do {
             let session = try await supabase.auth.session
             let userId = session.user.id
-
-            // Update profile fields
             let df = DateFormatter()
             df.dateFormat = "yyyy-MM-dd"
+
             struct UserUpdate: Encodable {
                 let full_name: String
                 let height_cm: Double
                 let date_of_birth: String
                 let activity_level: String
+                let goal: String
+                let macro_split: String
             }
             try await supabase
                 .from("users")
                 .update(UserUpdate(
-                    full_name: fullName,
-                    height_cm: heightCm,
-                    date_of_birth: df.string(from: dateOfBirth),
-                    activity_level: activityLevel
+                    full_name: snapFullName,
+                    height_cm: snapHeightCm,
+                    date_of_birth: df.string(from: snapDOB),
+                    activity_level: snapActivityLevel,
+                    goal: snapGoal,
+                    macro_split: snapMacroSplit
                 ))
                 .eq("id", value: userId)
                 .execute()
 
-            // Trigger email change verification if the address changed
-            if email != originalEmail {
-                try await supabase.auth.update(user: UserAttributes(email: email))
+            if snapEmail != originalEmail {
+                try await supabase.auth.update(user: UserAttributes(email: snapEmail))
                 emailVerificationSent = true
             }
 
-            // Insert new body metric for weight
             struct BodyMetricInsert: Encodable {
                 let user_id: UUID
                 let weight_kg: Double
             }
             try await supabase
                 .from("body_metrics")
-                .insert(BodyMetricInsert(user_id: userId, weight_kg: weightUnit.toKg(weightDisplay)))
+                .insert(BodyMetricInsert(user_id: userId, weight_kg: snapWeightKg))
                 .execute()
 
-            // Replace food_preferences
+            // Always recalculate and upsert nutrition targets on every profile save.
+            let age = Calendar.current.dateComponents([.year], from: snapDOB, to: Date()).year ?? 30
+            let targets = TDEECalculator.calculate(
+                sex: snapSex,
+                weightKg: snapWeightKg,
+                heightCm: snapHeightCm,
+                age: age,
+                activityLevel: snapActivityLevel,
+                goal: snapGoal,
+                macroSplit: snapMacroSplit
+            )
+            struct NutritionTargetInsert: Encodable {
+                let user_id: UUID
+                let calories: Double
+                let protein_g: Double
+                let carbs_g: Double
+                let fat_g: Double
+            }
             try await supabase
-                .from("food_preferences")
-                .delete()
-                .eq("user_id", value: userId)
+                .from("nutrition_targets")
+                .insert(NutritionTargetInsert(
+                    user_id: userId,
+                    calories: targets.calories,
+                    protein_g: targets.proteinG,
+                    carbs_g: targets.carbsG,
+                    fat_g: targets.fatG
+                ))
                 .execute()
-            if !preferences.isEmpty {
-                struct PrefInsert: Encodable {
-                    let user_id: UUID
-                    let preference: String
-                }
+
+            // Update AppState immediately so all views reflect new values without a DB round-trip.
+            appState.nutritionTarget = StoredTarget(
+                calories: targets.calories,
+                proteinG: targets.proteinG,
+                carbsG: targets.carbsG,
+                fatG: targets.fatG
+            )
+
+            // Replace food_preferences
+            try await supabase.from("food_preferences").delete().eq("user_id", value: userId).execute()
+            if !snapPreferences.isEmpty {
+                struct PrefInsert: Encodable { let user_id: UUID; let preference: String }
                 try await supabase
                     .from("food_preferences")
-                    .insert(preferences.map { PrefInsert(user_id: userId, preference: $0) })
+                    .insert(snapPreferences.map { PrefInsert(user_id: userId, preference: $0) })
                     .execute()
             }
 
             // Replace allergies
-            try await supabase
-                .from("allergies")
-                .delete()
-                .eq("user_id", value: userId)
-                .execute()
-            if !allergies.isEmpty {
-                struct AllergyInsert: Encodable {
-                    let user_id: UUID
-                    let allergen: String
-                }
+            try await supabase.from("allergies").delete().eq("user_id", value: userId).execute()
+            if !snapAllergies.isEmpty {
+                struct AllergyInsert: Encodable { let user_id: UUID; let allergen: String }
                 try await supabase
                     .from("allergies")
-                    .insert(allergies.map { AllergyInsert(user_id: userId, allergen: $0) })
+                    .insert(snapAllergies.map { AllergyInsert(user_id: userId, allergen: $0) })
                     .execute()
             }
 
             await onSaved()
-            if !emailVerificationSent {
-                dismiss()
-            }
+            if !emailVerificationSent { dismiss() }
         } catch {
             saveError = error.localizedDescription
         }
         isSaving = false
     }
+
 }
 
 // MARK: - Sub-components
@@ -534,6 +673,7 @@ private struct ProfileEditSheet: View {
 private struct ActivityEditRow: View {
     let icon: String
     let label: String
+    let description: String
     let isSelected: Bool
 
     var body: some View {
@@ -542,7 +682,13 @@ private struct ActivityEditRow: View {
                 .font(.body)
                 .foregroundStyle(isSelected ? Color.accentColor : .secondary)
                 .frame(width: 24)
-            Text(label)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label)
+                    .font(.body)
+                Text(description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Spacer()
             if isSelected {
                 Image(systemName: "checkmark")
@@ -550,6 +696,67 @@ private struct ActivityEditRow: View {
                     .fontWeight(.semibold)
             }
         }
+        .padding(.vertical, 2)
+    }
+}
+
+private struct GoalEditRow: View {
+    let icon: String
+    let label: String
+    let description: String
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.body)
+                .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label)
+                    .font(.body)
+                Text(description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if isSelected {
+                Image(systemName: "checkmark")
+                    .foregroundStyle(Color.accentColor)
+                    .fontWeight(.semibold)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+private struct MacroSplitRow: View {
+    let label: String
+    let description: String
+    let preview: String
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label)
+                    .font(.body)
+                Text(description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(preview)
+                    .font(.caption)
+                    .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                    .fontWeight(isSelected ? .medium : .regular)
+            }
+            Spacer()
+            if isSelected {
+                Image(systemName: "checkmark")
+                    .foregroundStyle(Color.accentColor)
+                    .fontWeight(.semibold)
+            }
+        }
+        .padding(.vertical, 2)
     }
 }
 
