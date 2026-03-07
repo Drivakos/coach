@@ -3,12 +3,12 @@ import SwiftUI
 struct WizardStep4Activity: View {
     @Bindable var data: WizardData
 
-    private let levels: [(id: String, title: String, subtitle: String, icon: String)] = [
-        ("sedentary",         "Sedentary",          "Little or no exercise",            "sofa"),
-        ("lightly_active",    "Lightly Active",     "Light exercise 1–3 days/week",     "figure.walk"),
-        ("moderately_active", "Moderately Active",  "Moderate exercise 3–5 days/week",  "figure.run"),
-        ("very_active",       "Very Active",        "Hard exercise 6–7 days/week",      "figure.highintensity.intervaltraining"),
-        ("extra_active",      "Extra Active",       "Very hard exercise or physical job","bolt.fill"),
+    private let levels: [(level: ActivityLevel, subtitle: String, icon: String)] = [
+        (.sedentary,        "Little or no exercise",             "sofa"),
+        (.lightlyActive,    "Light exercise 1–3 days/week",      "figure.walk"),
+        (.moderatelyActive, "Moderate exercise 3–5 days/week",   "figure.run"),
+        (.veryActive,       "Hard exercise 6–7 days/week",       "figure.highintensity.intervaltraining"),
+        (.extraActive,      "Very hard exercise or physical job", "bolt.fill"),
     ]
 
     var body: some View {
@@ -19,14 +19,14 @@ struct WizardStep4Activity: View {
             )
 
             VStack(spacing: 10) {
-                ForEach(levels, id: \.id) { level in
+                ForEach(levels, id: \.level) { item in
                     ActivityCard(
-                        title: level.title,
-                        subtitle: level.subtitle,
-                        icon: level.icon,
-                        isSelected: data.activityLevel == level.id
+                        title: item.level.label,
+                        subtitle: item.subtitle,
+                        icon: item.icon,
+                        isSelected: data.activityLevel == item.level
                     )
-                    .onTapGesture { data.activityLevel = level.id }
+                    .onTapGesture { data.activityLevel = item.level }
                 }
             }
 

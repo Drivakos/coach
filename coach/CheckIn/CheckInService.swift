@@ -15,13 +15,11 @@ struct CheckInService {
         dateFormatter.string(from: Date())
     }
 
-    /// Returns the Monday of the week containing the given date.
+    /// Returns the Monday of the ISO week containing the given date.
     static func mondayString(of date: Date = Date()) -> String {
-        var cal = Calendar(identifier: .iso8601)
-        cal.firstWeekday = 2
-        let weekday = cal.component(.weekday, from: date)
-        let daysToMonday = (weekday - 2 + 7) % 7
-        let monday = cal.date(byAdding: .day, value: -daysToMonday, to: date)!
+        let cal = Calendar(identifier: .iso8601)
+        let components = cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: date)
+        let monday = cal.date(from: components)!
         return dateFormatter.string(from: monday)
     }
 

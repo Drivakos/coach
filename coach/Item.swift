@@ -72,19 +72,26 @@ struct FoodSearchResponse: Decodable {
 }
 
 struct FoodProduct: Decodable, Identifiable, Hashable {
-    let id = UUID()
+    let code: String?
     let product_name: String?
     let brands: String?
     let serving_size: String?
     let serving_quantity: Double?
     let nutriments: Nutriments?
 
+    /// Stable identity: barcode when available, otherwise content-based fallback.
+    var id: String {
+        if let code, !code.isEmpty { return code }
+        return "\(product_name ?? "")-\(brands ?? "")"
+    }
+
     enum CodingKeys: String, CodingKey {
-        case product_name, brands, serving_size, serving_quantity, nutriments
+        case code, product_name, brands, serving_size, serving_quantity, nutriments
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        code = try c.decodeIfPresent(String.self, forKey: .code)
         product_name = try c.decodeIfPresent(String.self, forKey: .product_name)
         brands = try c.decodeIfPresent(String.self, forKey: .brands)
         serving_size = try c.decodeIfPresent(String.self, forKey: .serving_size)
@@ -125,7 +132,7 @@ struct FoodSearchService {
             URLQueryItem(name: "action", value: "process"),
             URLQueryItem(name: "json", value: "1"),
             URLQueryItem(name: "page_size", value: "20"),
-            URLQueryItem(name: "fields", value: "product_name,brands,serving_size,serving_quantity,nutriments")
+            URLQueryItem(name: "fields", value: "code,product_name,brands,serving_size,serving_quantity,nutriments")
         ]
         let (data, _) = try await URLSession.shared.data(from: components.url!)
         let response = try JSONDecoder().decode(FoodSearchResponse.self, from: data)
@@ -155,4 +162,30 @@ class SearchViewModel {
         }
         isLoading = false
     }
+}
+
+// MARK: - Shared Supabase insert payloads
+
+struct NutritionTargetInsert: Encodable {
+    let user_id: UUID
+    let calories: Double
+    let protein_g: Double
+    let carbs_g: Double
+    let fat_g: Double
+}
+
+struct BodyMetricInsert: Encodable {
+    let user_id: UUID
+    let weight_kg: Double
+    let body_fat_pct: Double?
+}
+
+struct FoodPreferenceInsert: Encodable {
+    let user_id: UUID
+    let preference: String
+}
+
+struct AllergyInsert: Encodable {
+    let user_id: UUID
+    let allergen: String
 }

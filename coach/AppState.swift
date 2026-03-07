@@ -34,6 +34,16 @@ struct StoredTarget {
     var fatG: Double
 }
 
+// MARK: - Private Decodable helpers (top-level to avoid Swift 6 actor-isolation warnings)
+
+private struct ProfileRow: Decodable { let weight_unit: String? }
+private struct TargetRow: Decodable {
+    let calories: Double
+    let protein_g: Double
+    let carbs_g: Double
+    let fat_g: Double
+}
+
 // MARK: - App State
 
 @Observable
@@ -50,13 +60,6 @@ final class AppState {
     // MARK: - Profile loading
 
     func loadProfile() async {
-        struct ProfileRow: Decodable { let weight_unit: String? }
-        struct TargetRow: Decodable {
-            let calories: Double
-            let protein_g: Double
-            let carbs_g: Double
-            let fat_g: Double
-        }
         do {
             async let pFetch: ProfileRow = supabase
                 .from("users").select("weight_unit").single().execute().value

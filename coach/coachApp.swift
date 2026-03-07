@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import Auth
 import Supabase
 import UserNotifications
 
@@ -51,68 +50,3 @@ struct coachApp: App {
     }
 }
 
-// MARK: - Auth session observable
-
-enum AuthState { case loading, signedIn, signedOut }
-
-@Observable
-final class AuthSession {
-    var state: AuthState = .loading
-    var profileComplete: Bool = false
-
-    init() {
-        Task {
-            for await (event, _) in supabase.auth.authStateChanges {
-                switch event {
-                case .initialSession, .signedIn:
-                    let hasSession = (try? await supabase.auth.session) != nil
-                    if hasSession {
-                        state = .signedIn
-                        await checkProfileComplete()
-                    } else {
-                        state = .signedOut
-                        profileComplete = false
-                    }
-                case .signedOut:
-                    state = .signedOut
-                    profileComplete = false
-                default:
-                    break
-                }
-            }
-        }
-    }
-
-    func checkProfileComplete() async {
-        do {
-            // Fetch profile fields
-            struct UserProfile: Decodable {
-                let full_name: String?
-                let sex: String?
-            }
-            let profile: UserProfile = try await supabase
-                .from("users")
-                .select("full_name, sex")
-                .single()
-                .execute()
-                .value
-
-            let hasName = profile.full_name?.isEmpty == false
-            let hasSex  = profile.sex != nil
-
-            // Check if any nutrition_targets exist
-            struct TargetRow: Decodable { let id: UUID }
-            let targets: [TargetRow] = try await supabase
-                .from("nutrition_targets")
-                .select("id")
-                .execute()
-                .value
-
-            let hasTargets = !targets.isEmpty
-
-            profileComplete = hasName && hasSex && hasTargets
-        } catch {
-            profileComplete = false
-        }
-    }
-}

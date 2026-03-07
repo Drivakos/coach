@@ -56,12 +56,15 @@ private struct WeeklySummaryRow: View {
     let summary: WeeklySummary
     let weightUnit: WeightUnit
 
+    private static let displayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
+        return f
+    }()
+
     private var weekLabel: String {
-        let df = DateFormatter()
-        df.dateFormat = "yyyy-MM-dd"
-        guard let monday = df.date(from: summary.weekStart) else { return summary.weekStart }
-        let fmt = DateFormatter()
-        fmt.dateFormat = "MMM d"
+        guard let monday = summary.weekStartDate else { return summary.weekStart }
+        let fmt = Self.displayFormatter
         guard let sunday = Calendar.current.date(byAdding: .day, value: 6, to: monday) else {
             return fmt.string(from: monday)
         }

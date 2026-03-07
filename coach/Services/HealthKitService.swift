@@ -9,6 +9,7 @@ final class HealthKitService {
     var isAvailable: Bool { HKHealthStore.isHealthDataAvailable() }
 
     /// Requests read permission for step count. Returns true if authorization was granted.
+    @discardableResult
     func requestPermission() async -> Bool {
         guard isAvailable else { return false }
         let stepType = HKQuantityType(.stepCount)

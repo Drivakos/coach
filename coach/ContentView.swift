@@ -6,30 +6,34 @@
 //
 
 import SwiftUI
-import Supabase
 
 struct ContentView: View {
-    @State private var allLogs: [FoodLog] = []
+    @State private var logs: [FoodLog] = []
     @State private var showSearch = false
     @State private var logToEdit: FoodLog?
     @State private var selectedDate = Date()
-    @State private var isLoading = false
+    @State private var errorMessage: String?
 
-    private var selectedDayLogs: [FoodLog] {
-        let start = Calendar.current.startOfDay(for: selectedDate)
-        let end = Calendar.current.date(byAdding: .day, value: 1, to: start)!
-        return allLogs.filter { $0.loggedAt >= start && $0.loggedAt < end }
+    private let service = FoodLogService()
+    private static let titleFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
+        return f
+    }()
+
+    private var navigationTitle: String {
+        Calendar.current.isDateInToday(selectedDate) ? "Today" : Self.titleFormatter.string(from: selectedDate)
     }
 
     private var totalCalories: Double {
-        selectedDayLogs.reduce(0) { $0 + $1.calories }
+        logs.reduce(0) { $0 + $1.calories }
     }
 
     var body: some View {
         NavigationStack {
             List {
                 Section(header: Text("\(Int(totalCalories)) kcal")) {
-                    ForEach(selectedDayLogs) { log in
+                    ForEach(logs) { log in
                         Button {
                             logToEdit = log
                         } label: {
@@ -53,7 +57,7 @@ struct ContentView: View {
                 }
                 .background(.bar)
             }
-            .navigationTitle("Today")
+            .navigationTitle(navigationTitle)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
@@ -77,72 +81,53 @@ struct ContentView: View {
             .task(id: selectedDate) {
                 await fetchLogs()
             }
+            .alert("Something went wrong", isPresented: .init(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )) {
+                Button("OK") { errorMessage = nil }
+            } message: {
+                Text(errorMessage ?? "")
+            }
         }
     }
 
     // MARK: - Data operations
 
     private func fetchLogs() async {
-        isLoading = true
         do {
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            let logs: [FoodLog] = try await supabase
-                .from("food_logs")
-                .select()
-                .order("logged_at", ascending: false)
-                .execute()
-                .value
-            allLogs = logs
+            logs = try await service.fetch(for: selectedDate)
         } catch {
-            print("fetchLogs error:", error)
+            errorMessage = error.localizedDescription
         }
-        isLoading = false
     }
 
     private func addLog(_ insert: FoodLogInsert) async {
         do {
-            let log: FoodLog = try await supabase
-                .from("food_logs")
-                .insert(insert)
-                .select()
-                .single()
-                .execute()
-                .value
-            allLogs.append(log)
+            let log = try await service.insert(insert)
+            logs.append(log)
         } catch {
-            print("addLog error:", error)
+            errorMessage = error.localizedDescription
         }
     }
 
     private func updateLog(_ log: FoodLog) async {
         do {
-            let updated: FoodLog = try await supabase
-                .from("food_logs")
-                .update(log)
-                .eq("id", value: log.id)
-                .select()
-                .single()
-                .execute()
-                .value
-            if let idx = allLogs.firstIndex(where: { $0.id == log.id }) {
-                allLogs[idx] = updated
+            let updated = try await service.update(log)
+            if let idx = logs.firstIndex(where: { $0.id == log.id }) {
+                logs[idx] = updated
             }
         } catch {
-            print("updateLog error:", error)
+            errorMessage = error.localizedDescription
         }
     }
 
     private func deleteLog(_ log: FoodLog) async {
         do {
-            try await supabase
-                .from("food_logs")
-                .delete()
-                .eq("id", value: log.id)
-                .execute()
-            allLogs.removeAll { $0.id == log.id }
+            try await service.delete(log)
+            logs.removeAll { $0.id == log.id }
         } catch {
-            print("deleteLog error:", error)
+            errorMessage = error.localizedDescription
         }
     }
 }

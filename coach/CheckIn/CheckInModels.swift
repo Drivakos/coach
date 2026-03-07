@@ -52,6 +52,9 @@ struct WeeklySummary: Identifiable, Decodable {
     let id: UUID
     let userId: UUID
     let weekStart: String           // "yyyy-MM-dd" (Monday)
+
+    /// Parsed Monday date for display. Uses the shared formatter from CheckInService.
+    var weekStartDate: Date? { CheckInService.dateFormatter.date(from: weekStart) }
     let avgWeightKg: Double?
     let avgCalories: Double?
     let avgProteinG: Double?

@@ -1,15 +1,16 @@
 import SwiftUI
-import Supabase
+
 
 struct DashboardView: View {
     @Environment(AppState.self) private var appState
     @State private var todayCheckIn: DailyCheckIn? = nil
     @State private var showCheckInSheet = false
-    @State private var nutrition = NutritionTotals()
+    @State private var nutrition = FoodLogTotals()
     @State private var liveSteps: Int? = nil
     @State private var isLoading = true
 
     private let checkInService = CheckInService()
+    private let foodLogService = FoodLogService()
 
     /// Steps for display in the check-in card only.
     private var effectiveSteps: Int? { liveSteps ?? todayCheckIn?.steps }
@@ -126,51 +127,15 @@ struct DashboardView: View {
     private func loadAll() async {
         isLoading = true
         async let checkInFetch = checkInService.fetchToday()
-        async let nutritionFetch = fetchTodayNutrition()
+        async let nutritionFetch = foodLogService.fetchTotals(for: Date())
 
         do { todayCheckIn = try await checkInFetch }
         catch { print("DashboardView checkIn error:", error) }
 
-        nutrition = await nutritionFetch
+        nutrition = (try? await nutritionFetch) ?? FoodLogTotals()
         liveSteps = await HealthKitService.shared.fetchTodaySteps()
         isLoading = false
     }
-
-    private func fetchTodayNutrition() async -> NutritionTotals {
-        struct Row: Decodable {
-            let calories: Double
-            let protein_g: Double
-            let carbs_g: Double
-            let fat_g: Double
-        }
-        do {
-            let start = Calendar.current.startOfDay(for: Date())
-            let iso = ISO8601DateFormatter()
-            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            let logs: [Row] = try await supabase
-                .from("food_logs")
-                .select("calories, protein_g, carbs_g, fat_g")
-                .gte("logged_at", value: iso.string(from: start))
-                .execute().value
-            return NutritionTotals(
-                calories: logs.reduce(0) { $0 + $1.calories },
-                protein:  logs.reduce(0) { $0 + $1.protein_g },
-                carbs:    logs.reduce(0) { $0 + $1.carbs_g },
-                fat:      logs.reduce(0) { $0 + $1.fat_g }
-            )
-        } catch {
-            return NutritionTotals()
-        }
-    }
-}
-
-// MARK: - Supporting types
-
-private struct NutritionTotals {
-    var calories: Double = 0
-    var protein: Double  = 0
-    var carbs: Double    = 0
-    var fat: Double      = 0
 }
 
 private struct MacroProgressRow: View {

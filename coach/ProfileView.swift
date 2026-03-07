@@ -74,9 +74,9 @@ struct ProfileView: View {
                     weightUnit: appState.weightUnit,
                     dateOfBirth: parsedDOB(profile?.date_of_birth),
                     sex: profile?.sex ?? "male",
-                    activityLevel: profile?.activity_level ?? "moderately_active",
-                    goal: profile?.goal ?? "maintain",
-                    macroSplit: profile?.macro_split ?? "moderate_carb",
+                    activityLevel: ActivityLevel(rawValue: profile?.activity_level ?? "") ?? .moderatelyActive,
+                    goal: Goal(rawValue: profile?.goal ?? "") ?? .maintain,
+                    macroSplit: MacroSplit(rawValue: profile?.macro_split ?? "") ?? .moderateCarb,
                     initialPreferences: Set(preferences),
                     initialAllergies: Set(allergies),
                     onSaved: { await loadAll() }
@@ -134,13 +134,13 @@ struct ProfileView: View {
             // Activity & goal
             Section("Activity & Goal") {
                 if let level = profile?.activity_level {
-                    ProfileRow(label: "Activity Level", value: activityLabel(level))
+                    ProfileRow(label: "Activity Level", value: ActivityLevel(rawValue: level)?.label ?? level)
                 }
                 if let goal = profile?.goal {
-                    ProfileRow(label: "Goal", value: goalLabel(goal))
+                    ProfileRow(label: "Goal", value: Goal(rawValue: goal)?.label ?? goal)
                 }
                 if let split = profile?.macro_split {
-                    ProfileRow(label: "Macro Split", value: macroSplitLabel(split))
+                    ProfileRow(label: "Macro Split", value: MacroSplit(rawValue: split)?.label ?? split)
                 }
             }
 
@@ -241,34 +241,6 @@ struct ProfileView: View {
         return f.date(from: str) ?? Calendar.current.date(byAdding: .year, value: -30, to: Date())!
     }
 
-    private func activityLabel(_ id: String) -> String {
-        switch id {
-        case "sedentary":          return "Sedentary"
-        case "lightly_active":     return "Lightly Active"
-        case "moderately_active":  return "Moderately Active"
-        case "very_active":        return "Very Active"
-        case "extra_active":       return "Extra Active"
-        default:                   return id
-        }
-    }
-
-    private func goalLabel(_ id: String) -> String {
-        switch id {
-        case "lose_weight":  return "Lose Weight"
-        case "maintain":     return "Maintain Weight"
-        case "gain_muscle":  return "Gain Muscle"
-        default:             return id
-        }
-    }
-
-    private func macroSplitLabel(_ id: String) -> String {
-        switch id {
-        case "lower_carb":  return "Lower Carb"
-        case "higher_carb": return "Higher Carb"
-        default:            return "Moderate Carb"
-        }
-    }
-
     private func age(from dobString: String) -> Int? {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
@@ -302,9 +274,9 @@ private struct ProfileEditSheet: View {
     private let sex: String
 
     @State private var dateOfBirth: Date
-    @State private var activityLevel: String
-    @State private var goal: String
-    @State private var macroSplit: String
+    @State private var activityLevel: ActivityLevel
+    @State private var goal: Goal
+    @State private var macroSplit: MacroSplit
 
     @State private var preferences: Set<String>
     @State private var allergies: Set<String>
@@ -313,24 +285,24 @@ private struct ProfileEditSheet: View {
     @State private var saveError: String?
     @State private var emailVerificationSent = false
 
-    private let activityLevels: [(id: String, label: String, icon: String, description: String)] = [
-        ("sedentary",         "Sedentary",          "sofa",                                   "Little or no exercise, desk job"),
-        ("lightly_active",    "Lightly Active",     "figure.walk",                            "Light exercise 1–3 days/week"),
-        ("moderately_active", "Moderately Active",  "figure.run",                             "Moderate exercise 3–5 days/week"),
-        ("very_active",       "Very Active",        "figure.highintensity.intervaltraining",  "Hard exercise 6–7 days/week"),
-        ("extra_active",      "Extra Active",       "bolt.fill",                              "Very hard exercise & physical job"),
+    private let activityLevels: [(level: ActivityLevel, icon: String, description: String)] = [
+        (.sedentary,        "sofa",                                   "Little or no exercise, desk job"),
+        (.lightlyActive,    "figure.walk",                            "Light exercise 1–3 days/week"),
+        (.moderatelyActive, "figure.run",                             "Moderate exercise 3–5 days/week"),
+        (.veryActive,       "figure.highintensity.intervaltraining",  "Hard exercise 6–7 days/week"),
+        (.extraActive,      "bolt.fill",                              "Very hard exercise & physical job"),
     ]
 
-    private let goalOptions: [(id: String, label: String, icon: String, description: String)] = [
-        ("lose_weight",  "Lose Weight",      "arrow.down.circle.fill",  "~300 kcal deficit below your maintenance"),
-        ("maintain",     "Maintain Weight",  "equal.circle.fill",       "Calories matched to your maintenance TDEE"),
-        ("gain_muscle",  "Gain Muscle",      "arrow.up.circle.fill",    "~300 kcal surplus above your maintenance"),
+    private let goalOptions: [(goal: Goal, icon: String, description: String)] = [
+        (.loseWeight, "arrow.down.circle.fill",  "~300 kcal deficit below your maintenance"),
+        (.maintain,   "equal.circle.fill",       "Calories matched to your maintenance TDEE"),
+        (.gainMuscle, "arrow.up.circle.fill",    "~300 kcal surplus above your maintenance"),
     ]
 
-    private let macroSplitOptions: [(id: String, label: String, description: String)] = [
-        ("lower_carb",   "Lower Carb",   "40% protein · 40% fat · 20% carbs"),
-        ("moderate_carb","Moderate Carb","30% protein · 35% fat · 35% carbs"),
-        ("higher_carb",  "Higher Carb",  "30% protein · 20% fat · 50% carbs"),
+    private let macroSplitOptions: [(split: MacroSplit, description: String)] = [
+        (.lowerCarb,   "40% protein · 40% fat · 20% carbs"),
+        (.moderateCarb,"30% protein · 35% fat · 35% carbs"),
+        (.higherCarb,  "30% protein · 20% fat · 50% carbs"),
     ]
 
     private let preferenceOptions = ["vegan", "vegetarian", "keto", "paleo", "gluten-free", "dairy-free"]
@@ -339,7 +311,7 @@ private struct ProfileEditSheet: View {
     let onSaved: () async -> Void
 
     init(fullName: String, email: String, heightCm: Double, weightKg: Double, weightUnit: WeightUnit,
-         dateOfBirth: Date, sex: String, activityLevel: String, goal: String, macroSplit: String,
+         dateOfBirth: Date, sex: String, activityLevel: ActivityLevel, goal: Goal, macroSplit: MacroSplit,
          initialPreferences: Set<String>, initialAllergies: Set<String>,
          onSaved: @escaping () async -> Void) {
         _fullName = State(initialValue: fullName)
@@ -483,51 +455,51 @@ private struct ProfileEditSheet: View {
 
     private var activitySection: some View {
         Section("Activity Level") {
-            ForEach(activityLevels, id: \.id) { level in
-                ActivityEditRow(
-                    icon: level.icon,
-                    label: level.label,
-                    description: level.description,
-                    isSelected: activityLevel == level.id
+            ForEach(activityLevels, id: \.level) { item in
+                SelectableRow(
+                    icon: item.icon,
+                    label: item.level.label,
+                    description: item.description,
+                    isSelected: activityLevel == item.level
                 )
                 .contentShape(Rectangle())
-                .onTapGesture { activityLevel = level.id }
+                .onTapGesture { activityLevel = item.level }
             }
         }
     }
 
     private var goalSection: some View {
         Section("Goal") {
-            ForEach(goalOptions, id: \.id) { option in
-                GoalEditRow(
-                    icon: option.icon,
-                    label: option.label,
-                    description: option.description,
-                    isSelected: goal == option.id
+            ForEach(goalOptions, id: \.goal) { item in
+                SelectableRow(
+                    icon: item.icon,
+                    label: item.goal.label,
+                    description: item.description,
+                    isSelected: goal == item.goal
                 )
                 .contentShape(Rectangle())
-                .onTapGesture { goal = option.id }
+                .onTapGesture { goal = item.goal }
             }
         }
     }
 
     private var macroSplitSection: some View {
         Section("Macro Split") {
-            ForEach(macroSplitOptions, id: \.id) { option in
-                let t = previewTargets(for: option.id)
+            ForEach(macroSplitOptions, id: \.split) { item in
+                let t = previewTargets(for: item.split)
                 MacroSplitRow(
-                    label: option.label,
-                    description: option.description,
+                    label: item.split.label,
+                    description: item.description,
                     preview: "\(Int(t.proteinG))p · \(Int(t.carbsG))c · \(Int(t.fatG))f",
-                    isSelected: macroSplit == option.id
+                    isSelected: macroSplit == item.split
                 )
                 .contentShape(Rectangle())
-                .onTapGesture { macroSplit = option.id }
+                .onTapGesture { macroSplit = item.split }
             }
         }
     }
 
-    private func previewTargets(for split: String) -> TDEECalculator.Targets {
+    private func previewTargets(for split: MacroSplit) -> TDEECalculator.Targets {
         let age = Calendar.current.dateComponents([.year], from: dateOfBirth, to: Date()).year ?? 30
         return TDEECalculator.calculate(
             sex: sex,
@@ -544,7 +516,6 @@ private struct ProfileEditSheet: View {
 
     private func save() async {
         // Capture ALL form state synchronously before any await.
-        // @State vars read after suspension points may return stale values on struct copies.
         let snapFullName      = fullName
         let snapEmail         = email
         let snapHeightCm      = heightCm
@@ -580,9 +551,9 @@ private struct ProfileEditSheet: View {
                     full_name: snapFullName,
                     height_cm: snapHeightCm,
                     date_of_birth: df.string(from: snapDOB),
-                    activity_level: snapActivityLevel,
-                    goal: snapGoal,
-                    macro_split: snapMacroSplit
+                    activity_level: snapActivityLevel.rawValue,
+                    goal: snapGoal.rawValue,
+                    macro_split: snapMacroSplit.rawValue
                 ))
                 .eq("id", value: userId)
                 .execute()
@@ -592,16 +563,11 @@ private struct ProfileEditSheet: View {
                 emailVerificationSent = true
             }
 
-            struct BodyMetricInsert: Encodable {
-                let user_id: UUID
-                let weight_kg: Double
-            }
             try await supabase
                 .from("body_metrics")
-                .insert(BodyMetricInsert(user_id: userId, weight_kg: snapWeightKg))
+                .insert(BodyMetricInsert(user_id: userId, weight_kg: snapWeightKg, body_fat_pct: nil))
                 .execute()
 
-            // Always recalculate and upsert nutrition targets on every profile save.
             let age = Calendar.current.dateComponents([.year], from: snapDOB, to: Date()).year ?? 30
             let targets = TDEECalculator.calculate(
                 sex: snapSex,
@@ -612,13 +578,6 @@ private struct ProfileEditSheet: View {
                 goal: snapGoal,
                 macroSplit: snapMacroSplit
             )
-            struct NutritionTargetInsert: Encodable {
-                let user_id: UUID
-                let calories: Double
-                let protein_g: Double
-                let carbs_g: Double
-                let fat_g: Double
-            }
             try await supabase
                 .from("nutrition_targets")
                 .insert(NutritionTargetInsert(
@@ -630,7 +589,6 @@ private struct ProfileEditSheet: View {
                 ))
                 .execute()
 
-            // Update AppState immediately so all views reflect new values without a DB round-trip.
             appState.nutritionTarget = StoredTarget(
                 calories: targets.calories,
                 proteinG: targets.proteinG,
@@ -638,20 +596,16 @@ private struct ProfileEditSheet: View {
                 fatG: targets.fatG
             )
 
-            // Replace food_preferences
             try await supabase.from("food_preferences").delete().eq("user_id", value: userId).execute()
             if !snapPreferences.isEmpty {
-                struct PrefInsert: Encodable { let user_id: UUID; let preference: String }
                 try await supabase
                     .from("food_preferences")
-                    .insert(snapPreferences.map { PrefInsert(user_id: userId, preference: $0) })
+                    .insert(snapPreferences.map { FoodPreferenceInsert(user_id: userId, preference: $0) })
                     .execute()
             }
 
-            // Replace allergies
             try await supabase.from("allergies").delete().eq("user_id", value: userId).execute()
             if !snapAllergies.isEmpty {
-                struct AllergyInsert: Encodable { let user_id: UUID; let allergen: String }
                 try await supabase
                     .from("allergies")
                     .insert(snapAllergies.map { AllergyInsert(user_id: userId, allergen: $0) })
@@ -665,42 +619,11 @@ private struct ProfileEditSheet: View {
         }
         isSaving = false
     }
-
 }
 
 // MARK: - Sub-components
 
-private struct ActivityEditRow: View {
-    let icon: String
-    let label: String
-    let description: String
-    let isSelected: Bool
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.body)
-                .foregroundStyle(isSelected ? Color.accentColor : .secondary)
-                .frame(width: 24)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label)
-                    .font(.body)
-                Text(description)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            if isSelected {
-                Image(systemName: "checkmark")
-                    .foregroundStyle(Color.accentColor)
-                    .fontWeight(.semibold)
-            }
-        }
-        .padding(.vertical, 2)
-    }
-}
-
-private struct GoalEditRow: View {
+private struct SelectableRow: View {
     let icon: String
     let label: String
     let description: String

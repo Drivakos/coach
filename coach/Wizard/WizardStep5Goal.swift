@@ -3,16 +3,16 @@ import SwiftUI
 struct WizardStep5Goal: View {
     @Bindable var data: WizardData
 
-    private let goals: [(id: String, title: String, subtitle: String, icon: String)] = [
-        ("lose_weight", "Lose Weight",  "Calorie deficit to reduce body fat",  "arrow.down.circle"),
-        ("maintain",    "Maintain",     "Stay at your current weight",         "equal.circle"),
-        ("gain_muscle", "Gain Muscle",  "Calorie surplus to build lean mass",  "arrow.up.circle"),
+    private let goals: [(goal: Goal, subtitle: String, icon: String)] = [
+        (.loseWeight, "Calorie deficit to reduce body fat",  "arrow.down.circle"),
+        (.maintain,   "Stay at your current weight",         "equal.circle"),
+        (.gainMuscle, "Calorie surplus to build lean mass",  "arrow.up.circle"),
     ]
 
-    private let splits: [(id: String, title: String, label: String)] = [
-        ("moderate_carb", "Moderate Carb", "30 / 35 / 35"),
-        ("lower_carb",    "Lower Carb",    "40 / 40 / 20"),
-        ("higher_carb",   "Higher Carb",   "30 / 20 / 50"),
+    private let splits: [(split: MacroSplit, label: String)] = [
+        (.moderateCarb, "30 / 35 / 35"),
+        (.lowerCarb,    "40 / 40 / 20"),
+        (.higherCarb,   "30 / 20 / 50"),
     ]
 
     var body: some View {
@@ -24,14 +24,14 @@ struct WizardStep5Goal: View {
                 )
 
                 VStack(spacing: 12) {
-                    ForEach(goals, id: \.id) { goal in
+                    ForEach(goals, id: \.goal) { item in
                         GoalCard(
-                            title: goal.title,
-                            subtitle: goal.subtitle,
-                            icon: goal.icon,
-                            isSelected: data.goal == goal.id
+                            title: item.goal.label,
+                            subtitle: item.subtitle,
+                            icon: item.icon,
+                            isSelected: data.goal == item.goal
                         )
-                        .onTapGesture { data.goal = goal.id }
+                        .onTapGesture { data.goal = item.goal }
                     }
                 }
 
@@ -48,18 +48,18 @@ struct WizardStep5Goal: View {
                     }
 
                     VStack(spacing: 8) {
-                        ForEach(splits, id: \.id) { split in
-                            let (pPct, fPct, cPct) = data.macroPercentages(for: split.id)
+                        ForEach(splits, id: \.split) { item in
+                            let (pPct, fPct, cPct) = data.macroPercentages(for: item.split)
                             let cal = data.tdeeCalories
                             MacroSplitCard(
-                                title: split.title,
-                                label: split.label,
+                                title: item.split.label,
+                                label: item.label,
                                 proteinG: Int((cal * pPct / 4).rounded()),
                                 fatG:     Int((cal * fPct / 9).rounded()),
                                 carbsG:   Int((cal * cPct / 4).rounded()),
-                                isSelected: data.macroSplit == split.id
+                                isSelected: data.macroSplit == item.split
                             )
-                            .onTapGesture { data.macroSplit = split.id }
+                            .onTapGesture { data.macroSplit = item.split }
                         }
                     }
                 }
@@ -74,19 +74,13 @@ struct WizardStep5Goal: View {
 private struct CalorieSummaryCard: View {
     let data: WizardData
 
-    private var adjustment: Int {
-        switch data.goal {
-        case "lose_weight": return -300
-        case "gain_muscle": return +300
-        default:            return 0
-        }
-    }
+    private var adjustment: Int { Int(data.goal.calorieAdjustment) }
 
     private var adjustmentLabel: String {
         switch data.goal {
-        case "lose_weight": return "−300 kcal deficit"
-        case "gain_muscle": return "+300 kcal surplus"
-        default:            return "at maintenance"
+        case .loseWeight: return "−300 kcal deficit"
+        case .gainMuscle: return "+300 kcal surplus"
+        case .maintain:   return "at maintenance"
         }
     }
 
@@ -175,7 +169,6 @@ private struct MacroSplitCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // Title row
             HStack {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title).font(.subheadline.weight(.semibold))
@@ -187,7 +180,6 @@ private struct MacroSplitCard: View {
                 }
             }
 
-            // Macro grams row
             HStack(spacing: 0) {
                 MacroGramColumn(grams: proteinG, label: "protein", color: isSelected ? .white : .red)
                 Divider().frame(height: 28).opacity(isSelected ? 0.4 : 1)
