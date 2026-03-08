@@ -52,8 +52,7 @@ struct WeeklyPlanView: View {
                 }
             }
             .sheet(item: $addingToMeal) { meal in
-                FoodSearchSheet(logDate: Date()) { logInsert in
-                    addingToMeal = nil
+                FoodSearchSheet(logDate: Date(), mealType: meal.mealType) { logInsert in
                     Task { await addFood(logInsert, toMeal: meal) }
                 }
             }

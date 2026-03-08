@@ -3,16 +3,25 @@ import Supabase
 
 struct FoodLogService {
 
-    func fetch(for date: Date) async throws -> [FoodLog] {
+    private static let iso: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    private func dayRange(for date: Date) -> (start: String, end: String) {
         let start = Calendar.current.startOfDay(for: date)
         let end = Calendar.current.date(byAdding: .day, value: 1, to: start)!
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return (Self.iso.string(from: start), Self.iso.string(from: end))
+    }
+
+    func fetch(for date: Date) async throws -> [FoodLog] {
+        let (start, end) = dayRange(for: date)
         return try await supabase
             .from("food_logs")
             .select()
-            .gte("logged_at", value: iso.string(from: start))
-            .lt("logged_at", value: iso.string(from: end))
+            .gte("logged_at", value: start)
+            .lt("logged_at", value: end)
             .order("logged_at", ascending: false)
             .execute()
             .value
@@ -25,15 +34,12 @@ struct FoodLogService {
             let carbs_g: Double
             let fat_g: Double
         }
-        let start = Calendar.current.startOfDay(for: date)
-        let end = Calendar.current.date(byAdding: .day, value: 1, to: start)!
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let (start, end) = dayRange(for: date)
         let rows: [Row] = try await supabase
             .from("food_logs")
             .select("calories, protein_g, carbs_g, fat_g")
-            .gte("logged_at", value: iso.string(from: start))
-            .lt("logged_at", value: iso.string(from: end))
+            .gte("logged_at", value: start)
+            .lt("logged_at", value: end)
             .execute()
             .value
         return FoodLogTotals(
@@ -70,6 +76,17 @@ struct FoodLogService {
             .from("food_logs")
             .delete()
             .eq("id", value: log.id)
+            .execute()
+    }
+
+    func deleteMeal(_ mealType: MealType, on date: Date) async throws {
+        let (start, end) = dayRange(for: date)
+        try await supabase
+            .from("food_logs")
+            .delete()
+            .eq("meal_type", value: mealType.rawValue)
+            .gte("logged_at", value: start)
+            .lt("logged_at", value: end)
             .execute()
     }
 }

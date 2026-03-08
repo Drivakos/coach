@@ -34,15 +34,6 @@ struct StoredTarget {
     var fatG: Double
 }
 
-// MARK: - Private Decodable helpers (top-level to avoid Swift 6 actor-isolation warnings)
-
-private struct ProfileRow: Decodable { let weight_unit: String?; let goal: String? }
-private struct TargetRow: Decodable {
-    let calories: Double
-    let protein_g: Double
-    let carbs_g: Double
-    let fat_g: Double
-}
 
 // MARK: - App State
 
@@ -64,18 +55,10 @@ final class AppState {
 
     func loadProfile() async {
         do {
-            async let pFetch: ProfileRow = supabase
-                .from("users").select("weight_unit, goal").single().execute().value
-            async let tFetch: [TargetRow] = supabase
-                .from("nutrition_targets")
-                .select("calories, protein_g, carbs_g, fat_g")
-                .order("effective_from", ascending: false)
-                .order("created_at", ascending: false)
-                .limit(1).execute().value
-            let (p, targets) = try await (pFetch, tFetch)
+            let (weightUnitRaw, goalRaw, targets) = try await _fetchProfileData()
 
-            weightUnit = WeightUnit(rawValue: p.weight_unit ?? "kg") ?? .kg
-            goal = Goal(rawValue: p.goal ?? "maintain") ?? .maintain
+            weightUnit = WeightUnit(rawValue: weightUnitRaw ?? "kg") ?? .kg
+            goal = Goal(rawValue: goalRaw ?? "maintain") ?? .maintain
             if let t = targets.first {
                 nutritionTarget = StoredTarget(
                     calories: t.calories,
@@ -114,6 +97,29 @@ final class AppState {
             self?.showCheckIn = true
         }
     }
+}
+
+// Nonisolated free function — module-level functions are nonisolated by default,
+// so the local Decodable types here are never inferred as @MainActor.
+nonisolated private func _fetchProfileData() async throws -> (weightUnit: String?, goal: String?, targets: [AppStateTargetRow]) {
+    struct ProfileRow: Decodable { let weight_unit: String?; let goal: String? }
+    async let pFetch: ProfileRow = supabase
+        .from("users").select("weight_unit, goal").single().execute().value
+    async let tFetch: [AppStateTargetRow] = supabase
+        .from("nutrition_targets")
+        .select("calories, protein_g, carbs_g, fat_g")
+        .order("effective_from", ascending: false)
+        .order("created_at", ascending: false)
+        .limit(1).execute().value
+    let (p, t) = try await (pFetch, tFetch)
+    return (p.weight_unit, p.goal, t)
+}
+
+struct AppStateTargetRow: Decodable {
+    let calories: Double
+    let protein_g: Double
+    let carbs_g: Double
+    let fat_g: Double
 }
 
 extension Notification.Name {

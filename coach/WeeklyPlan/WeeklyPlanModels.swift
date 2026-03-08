@@ -2,8 +2,10 @@ import Foundation
 
 // MARK: - Meal type
 
-enum MealType: String, CaseIterable, Decodable {
+enum MealType: String, CaseIterable, Codable, Identifiable {
     case breakfast, lunch, dinner, snack
+
+    var id: String { rawValue }
 
     init(from decoder: Decoder) throws {
         let raw = try decoder.singleValueContainer().decode(String.self)

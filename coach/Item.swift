@@ -20,6 +20,7 @@ struct FoodLog: Codable, Identifiable {
     var fat: Double
     var servingSize: String?
     var quantityGrams: Double
+    var mealType: MealType
     var loggedAt: Date
     var createdAt: Date
 
@@ -34,9 +35,11 @@ struct FoodLog: Codable, Identifiable {
         case fat = "fat_g"
         case servingSize = "serving_size"
         case quantityGrams = "quantity_grams"
+        case mealType = "meal_type"
         case loggedAt = "logged_at"
         case createdAt = "created_at"
     }
+
 }
 
 // MARK: - Insert payload (no id/userId/createdAt — server generates them)
@@ -50,6 +53,7 @@ struct FoodLogInsert: Encodable {
     var fat: Double
     var servingSize: String?
     var quantityGrams: Double
+    var mealType: MealType
     var loggedAt: Date
 
     enum CodingKeys: String, CodingKey {
@@ -61,6 +65,7 @@ struct FoodLogInsert: Encodable {
         case fat = "fat_g"
         case servingSize = "serving_size"
         case quantityGrams = "quantity_grams"
+        case mealType = "meal_type"
         case loggedAt = "logged_at"
     }
 }

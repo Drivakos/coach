@@ -8,6 +8,7 @@ import SwiftUI
 struct ServingPickerView: View {
     let product: FoodProduct
     let logDate: Date
+    let mealType: MealType
     let onLog: (FoodLogInsert) -> Void
 
     @State private var mode: Int = 0
@@ -90,6 +91,7 @@ struct ServingPickerView: View {
                         fat: scaledFat,
                         servingSize: product.serving_size,
                         quantityGrams: effectiveGrams,
+                        mealType: mealType,
                         loggedAt: logDate
                     )
                     onLog(entry)

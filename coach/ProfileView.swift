@@ -12,6 +12,24 @@ private struct UserProfile: Decodable {
     let activity_level: String?
     let goal: String?
     let macro_split: String?
+
+    enum CodingKeys: String, CodingKey {
+        case email, full_name, height_cm, date_of_birth, sex, activity_level, goal, macro_split
+    }
+
+    // Explicit nonisolated init prevents Swift from inferring @MainActor on the
+    // Decodable conformance, which would break async let child tasks.
+    nonisolated init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        email          = try  c.decode(String.self,          forKey: .email)
+        full_name      = try  c.decodeIfPresent(String.self, forKey: .full_name)
+        height_cm      = try  c.decodeIfPresent(Double.self, forKey: .height_cm)
+        date_of_birth  = try  c.decodeIfPresent(String.self, forKey: .date_of_birth)
+        sex            = try  c.decodeIfPresent(String.self, forKey: .sex)
+        activity_level = try  c.decodeIfPresent(String.self, forKey: .activity_level)
+        goal           = try  c.decodeIfPresent(String.self, forKey: .goal)
+        macro_split    = try  c.decodeIfPresent(String.self, forKey: .macro_split)
+    }
 }
 
 private struct BodyMetric: Decodable {

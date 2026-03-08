@@ -10,6 +10,7 @@ struct FoodSearchSheet: View {
     @State private var viewModel = SearchViewModel()
     @State private var selectedProduct: FoodProduct?
     let logDate: Date
+    let mealType: MealType
     let onLog: (FoodLogInsert) -> Void
 
     var body: some View {
@@ -59,7 +60,10 @@ struct FoodSearchSheet: View {
                 }
             }
             .navigationDestination(item: $selectedProduct) { product in
-                ServingPickerView(product: product, logDate: logDate, onLog: onLog)
+                ServingPickerView(product: product, logDate: logDate, mealType: mealType) { insert in
+                    onLog(insert)
+                    dismiss()
+                }
             }
         }
     }
