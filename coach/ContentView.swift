@@ -100,6 +100,7 @@ struct ContentView: View {
         do {
             let log = try await service.insert(insert)
             logs.append(log)
+            NotificationCenter.default.post(name: .foodLogChanged, object: nil)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -111,6 +112,7 @@ struct ContentView: View {
             if let idx = logs.firstIndex(where: { $0.id == log.id }) {
                 logs[idx] = updated
             }
+            NotificationCenter.default.post(name: .foodLogChanged, object: nil)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -120,6 +122,7 @@ struct ContentView: View {
         do {
             try await service.delete(log)
             logs.removeAll { $0.id == log.id }
+            NotificationCenter.default.post(name: .foodLogChanged, object: nil)
         } catch {
             errorMessage = error.localizedDescription
         }

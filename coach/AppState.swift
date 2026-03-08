@@ -117,5 +117,6 @@ final class AppState {
 }
 
 extension Notification.Name {
-    static let openCheckIn = Notification.Name("openCheckIn")
+    static let openCheckIn   = Notification.Name("openCheckIn")
+    static let foodLogChanged = Notification.Name("foodLogChanged")
 }

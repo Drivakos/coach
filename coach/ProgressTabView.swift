@@ -9,6 +9,7 @@ struct ProgressTabView: View {
     @State private var photoCheckIns: [DailyCheckIn] = []
     @State private var isLoading = false
     @State private var loadError: String?
+    @State private var refreshTask: Task<Void, Never>? = nil
 
     private let service = ProgressService()
 
@@ -52,12 +53,21 @@ struct ProgressTabView: View {
             .navigationTitle("Progress")
             .task(id: timeRange) { await load() }
             .refreshable { await load() }
+            .onReceive(NotificationCenter.default.publisher(for: .foodLogChanged)) { _ in
+                refreshTask?.cancel()
+                refreshTask = Task { await fetchAndUpdate() }
+            }
         }
     }
 
     private func load() async {
         isLoading = true
         loadError = nil
+        await fetchAndUpdate()
+        isLoading = false
+    }
+
+    private func fetchAndUpdate() async {
         do {
             async let c = service.fetchCaloriePoints(for: timeRange)
             async let ci = service.fetchCheckInData(for: timeRange)
@@ -68,7 +78,6 @@ struct ProgressTabView: View {
         } catch {
             loadError = error.localizedDescription
         }
-        isLoading = false
     }
 }
 
@@ -105,6 +114,32 @@ private struct CalorieChartSection: View {
     let target: Double?
     let timeRange: ProgressTimeRange
 
+    private var calUnit: Calendar.Component { timeRange == .year ? .month : .day }
+
+    private var xDomain: ClosedRange<Date> {
+        let cal = Calendar(identifier: .iso8601)
+        let today = cal.startOfDay(for: Date())
+        switch timeRange {
+        case .week:
+            let comps = cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: today)
+            let monday = cal.date(from: comps) ?? today
+            return monday...(cal.date(byAdding: .day, value: 7, to: monday) ?? today)
+        case .month:
+            var comps = cal.dateComponents([.year, .month], from: today)
+            comps.day = 1
+            let first = cal.date(from: comps) ?? today
+            return first...(cal.date(byAdding: .month, value: 1, to: first) ?? today)
+        case .year:
+            var comps = cal.dateComponents([.year, .month], from: today)
+            let currentMonth = comps.month ?? 1
+            comps.month = 1; comps.day = 1
+            let first = cal.date(from: comps) ?? today
+            comps.month = currentMonth
+            let monthStart = cal.date(from: comps) ?? today
+            return first...(cal.date(byAdding: .month, value: 1, to: monthStart) ?? today)
+        }
+    }
+
     var body: some View {
         ChartCard(title: "Calories", systemImage: "flame.fill", tint: .orange) {
             if points.isEmpty {
@@ -112,28 +147,13 @@ private struct CalorieChartSection: View {
             } else {
                 Chart {
                     ForEach(points) { point in
-                        AreaMark(
-                            x: .value("Date", point.date, unit: .day),
+                        BarMark(
+                            x: .value("Date", point.date, unit: calUnit),
                             y: .value("Calories", point.calories)
                         )
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [.orange.opacity(0.4), .orange.opacity(0)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                        .interpolationMethod(.catmullRom)
-
-                        LineMark(
-                            x: .value("Date", point.date, unit: .day),
-                            y: .value("Calories", point.calories)
-                        )
-                        .foregroundStyle(.orange)
-                        .lineStyle(StrokeStyle(lineWidth: 2))
-                        .interpolationMethod(.catmullRom)
+                        .foregroundStyle(barColor(for: point.calories))
+                        .cornerRadius(3)
                     }
-
                     if let target {
                         RuleMark(y: .value("Target", target))
                             .lineStyle(StrokeStyle(lineWidth: 1, dash: [5, 3]))
@@ -147,6 +167,7 @@ private struct CalorieChartSection: View {
                     }
                 }
                 .frame(height: 180)
+                .chartXScale(domain: xDomain)
                 .chartXAxis { xAxisContent(for: timeRange) }
                 .chartYAxis {
                     AxisMarks(position: .leading) { value in
@@ -160,6 +181,11 @@ private struct CalorieChartSection: View {
                 }
             }
         }
+    }
+
+    private func barColor(for calories: Double) -> Color {
+        guard let target else { return .orange.opacity(0.8) }
+        return calories > target + 200 ? Color.red.opacity(0.7) : Color.orange.opacity(0.8)
     }
 }
 

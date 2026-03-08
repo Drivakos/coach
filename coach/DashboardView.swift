@@ -12,6 +12,7 @@ struct DashboardView: View {
     @State private var weekCaloriePoints: [DailyCaloriePoint] = []
     @State private var weekWeightPoints: [DailyWeightPoint] = []
     @State private var weeklyMacros: WeeklyMacros? = nil
+    @State private var refreshTask: Task<Void, Never>? = nil
 
     private let checkInService = CheckInService()
     private let foodLogService = FoodLogService()
@@ -43,6 +44,10 @@ struct DashboardView: View {
             .navigationTitle("Dashboard")
             .task { await loadAll() }
             .refreshable { await loadAll() }
+            .onReceive(NotificationCenter.default.publisher(for: .foodLogChanged)) { _ in
+                refreshTask?.cancel()
+                refreshTask = Task { await refreshNutrition() }
+            }
             .sheet(isPresented: $showCheckInSheet) {
                 DailyCheckInSheet(existing: todayCheckIn) { saved in
                     todayCheckIn = saved
@@ -178,23 +183,31 @@ struct DashboardView: View {
     private func loadAll() async {
         isLoading = true
         async let checkInFetch   = checkInService.fetchToday()
+        async let weightsFetch   = progressService.fetchLast7DayWeights()
         async let nutritionFetch = foodLogService.fetchTotals(for: Date())
         async let dashboardFetch = progressService.fetchLast7DayDashboardData()
-        async let weightsFetch   = progressService.fetchLast7DayWeights()
 
         do { todayCheckIn = try await checkInFetch }
         catch { print("DashboardView checkIn error:", error) }
 
-        nutrition = (try? await nutritionFetch) ?? FoodLogTotals()
+        weekWeightPoints = (try? await weightsFetch) ?? []
+        liveSteps        = await HealthKitService.shared.fetchTodaySteps()
+        nutrition        = (try? await nutritionFetch) ?? FoodLogTotals()
+        if let data      = try? await dashboardFetch {
+            weekCaloriePoints = data.calories
+            weeklyMacros      = data.macros
+        }
+        isLoading = false
+    }
 
+    private func refreshNutrition() async {
+        async let nutritionFetch = foodLogService.fetchTotals(for: Date())
+        async let dashboardFetch = progressService.fetchLast7DayDashboardData()
+        nutrition = (try? await nutritionFetch) ?? FoodLogTotals()
         if let data = try? await dashboardFetch {
             weekCaloriePoints = data.calories
             weeklyMacros      = data.macros
         }
-
-        weekWeightPoints = (try? await weightsFetch) ?? []
-        liveSteps        = await HealthKitService.shared.fetchTodaySteps()
-        isLoading = false
     }
 }
 
@@ -281,7 +294,7 @@ private struct CalorieMiniChart: View {
                         x: .value("Day", pt.date, unit: .day),
                         y: .value("Cal", pt.calories)
                     )
-                    .foregroundStyle(pt.calories > target + 200 ? Color.orange : Color.accentColor.opacity(0.8))
+                    .foregroundStyle(pt.calories > target + 200 ? Color.red.opacity(0.7) : Color.orange.opacity(0.8))
                     .cornerRadius(4)
                 }
                 RuleMark(y: .value("Target", target))
