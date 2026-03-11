@@ -28,32 +28,42 @@ private func infoPlistString(_ key: String) -> String {
     #if DEBUG
     if ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1" {
         switch key {
-        case "SUPABASE_URL":
-            return "http://localhost:54321"
-        case "SUPABASE_ANON_KEY":
-            return "preview-key"
-        default:
-            return ""
+        case "SUPABASE_HOST":   return "localhost:54321"
+        case "SUPABASE_ANON_KEY": return "preview-key"
+        default: return ""
         }
     }
     #endif
 
-    guard let value = Bundle.main.infoDictionary?[key] as? String, !value.isEmpty else {
-        fatalError("Missing '\(key)' in Info.plist — set it in your Config.xcconfig file.")
+    guard let value = Bundle.main.infoDictionary?[key] as? String,
+          !value.isEmpty,
+          !value.hasPrefix("$(") else {
+        fatalError("'\(key)' missing or not expanded in Info.plist. Check Config.xcconfig is assigned in Xcode → Project → Info → Configurations.")
     }
     return value
 }
 
-let supabase = SupabaseClient(
-    supabaseURL: URL(string: infoPlistString("SUPABASE_URL"))!,
-    supabaseKey: infoPlistString("SUPABASE_ANON_KEY"),
-    options: SupabaseClientOptions(
-        auth: {
-            #if DEBUG
-            .init(storage: UserDefaultsAuthStorage(), emitLocalSessionAsInitialSession: true)
-            #else
-            .init(emitLocalSessionAsInitialSession: true)
-            #endif
-        }()
+let supabase: SupabaseClient = {
+    let host = infoPlistString("SUPABASE_HOST")
+    #if DEBUG
+    let scheme = "http"
+    #else
+    let scheme = "https"
+    #endif
+    guard let url = URL(string: "\(scheme)://\(host)") else {
+        fatalError("SUPABASE_HOST '\(host)' could not form a valid URL.")
+    }
+    return SupabaseClient(
+        supabaseURL: url,
+        supabaseKey: infoPlistString("SUPABASE_ANON_KEY"),
+        options: SupabaseClientOptions(
+            auth: {
+                #if DEBUG
+                .init(storage: UserDefaultsAuthStorage(), emitLocalSessionAsInitialSession: true)
+                #else
+                .init(emitLocalSessionAsInitialSession: true)
+                #endif
+            }()
+        )
     )
-)
+}()

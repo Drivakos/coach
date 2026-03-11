@@ -8,7 +8,8 @@ import SwiftUI
 struct FoodSearchSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel = SearchViewModel()
-    @State private var selectedProduct: FoodProduct?
+    @State private var selectedItem: FoodItem?
+    @State private var showingManualEntry = false
     let logDate: Date
     let mealType: MealType
     let onLog: (FoodLogInsert) -> Void
@@ -24,20 +25,22 @@ struct FoodSearchSheet: View {
                         .foregroundStyle(.red)
                         .padding()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if viewModel.hasSearched && viewModel.results.isEmpty {
+                    ContentUnavailableView.search(text: viewModel.query)
                 } else {
-                    List(viewModel.results) { product in
+                    List(viewModel.results) { item in
                         Button {
-                            selectedProduct = product
+                            selectedItem = item
                         } label: {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(product.product_name ?? "Unknown")
+                                Text(item.name)
                                     .foregroundStyle(.primary)
-                                if let brand = product.brands, !brand.isEmpty {
+                                if let brand = item.brand, !brand.isEmpty {
                                     Text(brand)
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }
-                                Text("\(Int(product.nutriments?.calories ?? 0)) kcal per 100g")
+                                Text("\(Int(item.nutritionPer100g.calories)) kcal · \(Int(item.nutritionPer100g.proteinG))g P · \(Int(item.nutritionPer100g.carbs.totalG))g C · \(Int(item.nutritionPer100g.fat.totalG))g F  /100g")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -52,15 +55,24 @@ struct FoodSearchSheet: View {
             #endif
             .searchable(text: $viewModel.query, prompt: "Search food…")
             .onSubmit(of: .search) {
-                Task { await viewModel.performSearch() }
+                viewModel.performSearch()
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Add manually") { showingManualEntry = true }
+                }
             }
-            .navigationDestination(item: $selectedProduct) { product in
-                ServingPickerView(product: product, logDate: logDate, mealType: mealType) { insert in
+            .sheet(isPresented: $showingManualEntry) {
+                ManualFoodEntrySheet(logDate: logDate, mealType: mealType) { insert in
+                    onLog(insert)
+                    dismiss()
+                }
+            }
+            .navigationDestination(item: $selectedItem) { item in
+                ServingPickerView(item: item, logDate: logDate, mealType: mealType) { insert in
                     onLog(insert)
                     dismiss()
                 }

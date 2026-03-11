@@ -5,25 +5,27 @@
 
 import SwiftUI
 
+private enum ServingMode: CaseIterable {
+    case grams, servings
+}
+
 struct ServingPickerView: View {
-    let product: FoodProduct
+    let item: FoodItem
     let logDate: Date
     let mealType: MealType
     let onLog: (FoodLogInsert) -> Void
 
-    @State private var mode: Int = 0
+    @State private var mode: ServingMode = .grams
     @State private var gramsText: String = "100"
     @State private var servingCount: Double = 1.0
 
-    private var hasServingQuantity: Bool {
-        (product.serving_quantity ?? 0) > 0
-    }
+    private var hasServing: Bool { (item.serving?.sizeG ?? 0) > 0 }
 
     private var effectiveGrams: Double {
-        if mode == 0 || !hasServingQuantity {
+        if mode == .grams || !hasServing {
             return Double(gramsText) ?? 0
         } else {
-            return (product.serving_quantity ?? 0) * servingCount
+            return (item.serving?.sizeG ?? 0) * servingCount
         }
     }
 
@@ -31,25 +33,22 @@ struct ServingPickerView: View {
         ((value ?? 0) * effectiveGrams) / 100
     }
 
-    private var scaledCalories: Double { scale(product.nutriments?.calories) }
-    private var scaledProtein: Double  { scale(product.nutriments?.protein) }
-    private var scaledCarbs: Double    { scale(product.nutriments?.carbohydrates) }
-    private var scaledFat: Double      { scale(product.nutriments?.fat) }
+    private var n: FoodItem.Nutrition { item.nutritionPer100g }
 
     var body: some View {
         Form {
-            if hasServingQuantity {
+            if hasServing {
                 Section {
                     Picker("Mode", selection: $mode) {
-                        Text("Grams").tag(0)
-                        Text("Servings").tag(1)
+                        Text("Grams").tag(ServingMode.grams)
+                        Text("Servings").tag(ServingMode.servings)
                     }
                     .pickerStyle(.segmented)
                 }
             }
 
             Section {
-                if mode == 0 || !hasServingQuantity {
+                if mode == .grams || !hasServing {
                     HStack {
                         Text("Amount (g)")
                         Spacer()
@@ -61,9 +60,9 @@ struct ServingPickerView: View {
                             .frame(width: 80)
                     }
                 } else {
-                    let servingLabel = product.serving_size.map { " (\($0))" } ?? ""
+                    let label = item.serving?.description.map { " (\($0))" } ?? ""
                     Stepper(value: $servingCount, in: 0.5...20, step: 0.5) {
-                        Text("Servings: \(servingCount, specifier: "%.1f")\(servingLabel)")
+                        Text("Servings: \(servingCount, specifier: "%.1f")\(label)")
                     }
                     Text("\(Int(effectiveGrams))g total")
                         .font(.caption)
@@ -73,36 +72,87 @@ struct ServingPickerView: View {
 
             Section("Nutrition preview") {
                 NutritionPreview(
-                    calories: scaledCalories,
-                    protein: scaledProtein,
-                    carbs: scaledCarbs,
-                    fat: scaledFat
+                    calories: scale(n.calories),
+                    protein:  scale(n.proteinG),
+                    carbs:    scale(n.carbs.totalG),
+                    fat:      scale(n.fat.totalG)
                 )
+                // Extended breakdown (shown when data is available)
+                if n.carbs.fiberG != nil || n.carbs.sugarsG != nil {
+                    Divider()
+                    if let fiber = n.carbs.fiberG {
+                        macroRow("Fiber", value: scale(fiber), unit: "g")
+                    }
+                    if let sugars = n.carbs.sugarsG {
+                        macroRow("Sugars", value: scale(sugars), unit: "g")
+                    }
+                }
+                if n.fat.saturatedG != nil {
+                    Divider()
+                    if let sat = n.fat.saturatedG {
+                        macroRow("Saturated fat", value: scale(sat), unit: "g")
+                    }
+                    if let mono = n.fat.monounsaturatedG {
+                        macroRow("Monounsaturated", value: scale(mono), unit: "g")
+                    }
+                    if let poly = n.fat.polyunsaturatedG {
+                        macroRow("Polyunsaturated", value: scale(poly), unit: "g")
+                    }
+                }
+                if let sodium = n.sodiumMg {
+                    Divider()
+                    macroRow("Sodium", value: scale(sodium), unit: "mg")
+                }
             }
 
             Section {
-                Button("Log") {
-                    let entry = FoodLogInsert(
-                        name: product.product_name ?? "Unknown",
-                        brand: product.brands?.isEmpty == false ? product.brands : nil,
-                        calories: scaledCalories,
-                        protein: scaledProtein,
-                        carbs: scaledCarbs,
-                        fat: scaledFat,
-                        servingSize: product.serving_size,
-                        quantityGrams: effectiveGrams,
-                        mealType: mealType,
-                        loggedAt: logDate
-                    )
-                    onLog(entry)
-                }
-                .frame(maxWidth: .infinity)
-                .disabled(effectiveGrams <= 0)
+                Button("Log") { logEntry() }
+                    .frame(maxWidth: .infinity)
+                    .disabled(effectiveGrams <= 0)
             }
         }
-        .navigationTitle(product.product_name ?? "Unknown")
+        .navigationTitle(item.name)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+    }
+
+    private func macroRow(_ label: String, value: Double, unit: String) -> some View {
+        HStack {
+            Text(label).foregroundStyle(.secondary)
+            Spacer()
+            Text("\(value, specifier: "%.1f") \(unit)")
+                .foregroundStyle(.secondary)
+        }
+        .font(.caption)
+    }
+
+    private func logEntry() {
+        // Persist to food catalog in the background — best-effort, doesn't block the log
+        Task { await FoodCatalogService().save(item) }
+
+        let entry = FoodLogInsert(
+            name:           item.name,
+            brand:          item.brand,
+            calories:       scale(n.calories),
+            protein:        scale(n.proteinG),
+            carbs:          scale(n.carbs.totalG),
+            fat:            scale(n.fat.totalG),
+            fiberG:         n.carbs.fiberG.map       { scale($0) },
+            sugarsG:        n.carbs.sugarsG.map      { scale($0) },
+            addedSugarsG:   n.carbs.addedSugarsG.map { scale($0) },
+            saturatedFatG:  n.fat.saturatedG.map     { scale($0) },
+            monounsatFatG:  n.fat.monounsaturatedG.map { scale($0) },
+            polyunsatFatG:  n.fat.polyunsaturatedG.map { scale($0) },
+            transFatG:      n.fat.transG.map         { scale($0) },
+            sodiumMg:       n.sodiumMg.map           { scale($0) },
+            cholesterolMg:  n.cholesterolMg.map      { scale($0) },
+            servingSize:    item.serving?.description,
+            quantityGrams:  effectiveGrams,
+            mealType:       mealType,
+            loggedAt:       logDate,
+            foodDbId:       item.id
+        )
+        onLog(entry)
     }
 }
