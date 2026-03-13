@@ -51,15 +51,35 @@ final class AppState {
     /// Most recent stored nutrition targets, kept in sync with the DB.
     var nutritionTarget: StoredTarget? = nil
 
+    // MARK: - Profile fields for step-adjusted calorie calculation
+    var sex: String = "male"
+    var heightCm: Double = 170
+    var ageYears: Int = 30
+    var macroSplit: MacroSplit = .moderateCarb
+    /// Most recent body metric weight (kg), used for step-adjusted TDEE.
+    var profileWeightKg: Double = 70
+
+    /// Returns a calorie/macro target adjusted for today's actual step count.
+    /// Falls back to `nutritionTarget` if profile data isn't loaded yet.
+    func adjustedTarget(forSteps steps: Int, weightKg: Double? = nil) -> StoredTarget? {
+        guard nutritionTarget != nil else { return nil }
+        let wkg = weightKg ?? profileWeightKg
+        let t = TDEECalculator.calculate(
+            sex: sex, weightKg: wkg, heightCm: heightCm, age: ageYears,
+            steps: steps, goal: goal, macroSplit: macroSplit
+        )
+        return StoredTarget(calories: t.calories, proteinG: t.proteinG, carbsG: t.carbsG, fatG: t.fatG)
+    }
+
     // MARK: - Profile loading
 
     func loadProfile() async {
         do {
-            let (weightUnitRaw, goalRaw, targets) = try await _fetchProfileData()
+            let result = try await _fetchProfileData()
 
-            weightUnit = WeightUnit(rawValue: weightUnitRaw ?? "kg") ?? .kg
-            goal = Goal(rawValue: goalRaw ?? "maintain") ?? .maintain
-            if let t = targets.first {
+            weightUnit = WeightUnit(rawValue: result.weightUnit ?? "kg") ?? .kg
+            goal = Goal(rawValue: result.goal ?? "maintain") ?? .maintain
+            if let t = result.targets.first {
                 nutritionTarget = StoredTarget(
                     calories: t.calories,
                     proteinG: t.protein_g,
@@ -67,6 +87,14 @@ final class AppState {
                     fatG: t.fat_g
                 )
             }
+            sex = result.sex ?? "male"
+            heightCm = result.heightCm ?? 170
+            macroSplit = MacroSplit(rawValue: result.macroSplit ?? "moderate_carb") ?? .moderateCarb
+            if let dobStr = result.dateOfBirth,
+               let dob = CheckInService.dateFormatter.date(from: dobStr) {
+                ageYears = Calendar.current.dateComponents([.year], from: dob, to: Date()).year ?? 30
+            }
+            if let w = result.profileWeightKg { profileWeightKg = w }
         } catch {
             print("AppState loadProfile error:", error)
         }
@@ -101,18 +129,32 @@ final class AppState {
 
 // Nonisolated free function — module-level functions are nonisolated by default,
 // so the local Decodable types here are never inferred as @MainActor.
-nonisolated private func _fetchProfileData() async throws -> (weightUnit: String?, goal: String?, targets: [AppStateTargetRow]) {
-    struct ProfileRow: Decodable { let weight_unit: String?; let goal: String? }
+nonisolated private func _fetchProfileData() async throws -> (
+    weightUnit: String?, goal: String?, targets: [AppStateTargetRow],
+    sex: String?, heightCm: Double?, dateOfBirth: String?, macroSplit: String?,
+    profileWeightKg: Double?
+) {
+    struct ProfileRow: Decodable {
+        let weight_unit: String?; let goal: String?
+        let sex: String?; let height_cm: Double?
+        let date_of_birth: String?; let macro_split: String?
+    }
+    struct BodyMetricRow: Decodable { let weight_kg: Double }
     async let pFetch: ProfileRow = supabase
-        .from("users").select("weight_unit, goal").single().execute().value
+        .from("users").select("weight_unit, goal, sex, height_cm, date_of_birth, macro_split").single().execute().value
     async let tFetch: [AppStateTargetRow] = supabase
         .from("nutrition_targets")
         .select("calories, protein_g, carbs_g, fat_g")
         .order("effective_from", ascending: false)
         .order("created_at", ascending: false)
         .limit(1).execute().value
-    let (p, t) = try await (pFetch, tFetch)
-    return (p.weight_unit, p.goal, t)
+    async let wFetch: [BodyMetricRow] = supabase
+        .from("body_metrics")
+        .select("weight_kg")
+        .order("created_at", ascending: false)
+        .limit(1).execute().value
+    let (p, t, w) = try await (pFetch, tFetch, wFetch)
+    return (p.weight_unit, p.goal, t, p.sex, p.height_cm, p.date_of_birth, p.macro_split, w.first?.weight_kg)
 }
 
 struct AppStateTargetRow: Decodable {

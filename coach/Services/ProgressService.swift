@@ -38,6 +38,12 @@ struct ProgressService {
     private let checkInService = CheckInService()
     private let df = CheckInService.dateFormatter
 
+    private static let iso: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
     func dateRange(for timeRange: ProgressTimeRange) -> (start: Date, end: Date) {
         let cal = Calendar(identifier: .iso8601)
         let today = cal.startOfDay(for: Date())
@@ -112,8 +118,8 @@ struct ProgressService {
 
     // MARK: - Weight + Photos (combined to avoid duplicate fetchRange calls)
 
-    /// Returns weight chart points and photo check-ins in a single DB round-trip.
-    func fetchCheckInData(for timeRange: ProgressTimeRange) async throws -> (weights: [DailyWeightPoint], photos: [DailyCheckIn]) {
+    /// Returns weight chart points, photo check-ins, and workout days in a single DB round-trip.
+    func fetchCheckInData(for timeRange: ProgressTimeRange) async throws -> (weights: [DailyWeightPoint], photos: [DailyCheckIn], workouts: [Date]) {
         let (start, end) = dateRange(for: timeRange)
         let checkIns = try await checkInService.fetchRange(
             from: df.string(from: start),
@@ -125,7 +131,11 @@ struct ProgressService {
         }
         let weights = timeRange == .year ? aggregateWeightsToMonthly(dailyWeights) : dailyWeights
         let photos = checkIns.filter { $0.photoUrl != nil }
-        return (weights, photos)
+        let workouts = checkIns.compactMap { ci -> Date? in
+            guard ci.workoutCompleted, let date = df.date(from: ci.date) else { return nil }
+            return date
+        }
+        return (weights, photos, workouts)
     }
 
     // MARK: - Dashboard: last 7 days (single food_logs query for both calories and macros)
@@ -149,7 +159,6 @@ struct ProgressService {
         let cal = Calendar.current
         let end = cal.startOfDay(for: Date())
         let start = cal.date(byAdding: .day, value: -6, to: end)!
-        let startStr = df.string(from: start)
         guard let nextDay = cal.date(byAdding: .day, value: 1, to: end) else {
             return ([], WeeklyMacros(avgCalories: 0, avgProteinG: 0, avgCarbsG: 0, avgFatG: 0, daysLogged: 0))
         }
@@ -157,12 +166,15 @@ struct ProgressService {
         let rows: [MacroFoodLogRow] = try await supabase
             .from("food_logs")
             .select("logged_at, calories, protein_g, carbs_g, fat_g")
-            .gte("logged_at", value: startStr)
-            .lt("logged_at", value: df.string(from: nextDay))
+            .gte("logged_at", value: Self.iso.string(from: start))
+            .lt("logged_at", value: Self.iso.string(from: nextDay))
             .execute()
             .value
 
-        let byDay = Dictionary(grouping: rows) { String($0.loggedAt.prefix(10)) }
+        let byDay = Dictionary(grouping: rows) { row -> String in
+            guard let date = Self.iso.date(from: row.loggedAt) else { return String(row.loggedAt.prefix(10)) }
+            return df.string(from: date)
+        }
 
         let caloriePoints = byDay.compactMap { dateStr, logs -> DailyCaloriePoint? in
             guard let date = df.date(from: dateStr) else { return nil }

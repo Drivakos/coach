@@ -12,6 +12,7 @@ struct DashboardView: View {
     @State private var weekCaloriePoints: [DailyCaloriePoint] = []
     @State private var weekWeightPoints: [DailyWeightPoint] = []
     @State private var weeklyMacros: WeeklyMacros? = nil
+    @State private var loadTask: Task<Void, Never>? = nil
     @State private var refreshTask: Task<Void, Never>? = nil
 
     private let checkInService = CheckInService()
@@ -19,6 +20,16 @@ struct DashboardView: View {
     private let progressService = ProgressService()
 
     private var effectiveSteps: Int? { liveSteps ?? todayCheckIn?.steps }
+
+    /// Calorie/macro target adjusted for today's actual steps.
+    /// The stored plan target is always the floor — steps only add, never subtract.
+    private var effectiveTarget: StoredTarget? {
+        guard let stored = appState.nutritionTarget else { return nil }
+        guard let steps = effectiveSteps, steps > 0,
+              let adjusted = appState.adjustedTarget(forSteps: steps, weightKg: todayCheckIn?.weightKg),
+              adjusted.calories > stored.calories else { return stored }
+        return adjusted
+    }
 
     private var coachInsights: [CoachInsight] {
         guard let target = appState.nutritionTarget else { return [] }
@@ -42,7 +53,10 @@ struct DashboardView: View {
                 }
             }
             .navigationTitle("Dashboard")
-            .task { await loadAll() }
+            .onAppear {
+                loadTask?.cancel()
+                loadTask = Task { await loadAll() }
+            }
             .refreshable { await loadAll() }
             .onReceive(NotificationCenter.default.publisher(for: .foodLogChanged)) { _ in
                 refreshTask?.cancel()
@@ -120,7 +134,7 @@ struct DashboardView: View {
         Section("Today's Nutrition") {
             if isLoading {
                 ProgressView().frame(maxWidth: .infinity)
-            } else if let target = appState.nutritionTarget {
+            } else if let target = effectiveTarget {
                 MacroProgressRow(
                     label: "Calories",
                     current: nutrition.calories, target: target.calories,
@@ -203,7 +217,9 @@ struct DashboardView: View {
     private func refreshNutrition() async {
         async let nutritionFetch = foodLogService.fetchTotals(for: Date())
         async let dashboardFetch = progressService.fetchLast7DayDashboardData()
-        nutrition = (try? await nutritionFetch) ?? FoodLogTotals()
+        if let totals = try? await nutritionFetch {
+            nutrition = totals
+        }
         if let data = try? await dashboardFetch {
             weekCaloriePoints = data.calories
             weeklyMacros      = data.macros

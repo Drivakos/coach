@@ -7,6 +7,7 @@ struct ProgressTabView: View {
     @State private var caloriePoints: [DailyCaloriePoint] = []
     @State private var weightPoints: [DailyWeightPoint] = []
     @State private var photoCheckIns: [DailyCheckIn] = []
+    @State private var workoutDays: Set<Date> = []
     @State private var isLoading = false
     @State private var loadError: String?
     @State private var refreshTask: Task<Void, Never>? = nil
@@ -45,6 +46,10 @@ struct ProgressTabView: View {
                             weightUnit: appState.weightUnit,
                             timeRange: timeRange
                         )
+                        WorkoutChartSection(
+                            workoutDays: workoutDays,
+                            timeRange: timeRange
+                        )
                         PhotosSection(checkIns: photoCheckIns)
                     }
                 }
@@ -75,6 +80,7 @@ struct ProgressTabView: View {
             caloriePoints = cal
             weightPoints = checkInData.weights
             photoCheckIns = checkInData.photos
+            workoutDays = Set(checkInData.workouts)
         } catch {
             loadError = error.localizedDescription
         }
@@ -259,6 +265,145 @@ private struct WeightChartSection: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Workout Chart
+
+private struct WorkoutChartSection: View {
+    let workoutDays: Set<Date>
+    let timeRange: ProgressTimeRange
+
+    private let cal = Calendar(identifier: .iso8601)
+
+    var body: some View {
+        ChartCard(title: "Workouts", systemImage: "dumbbell.fill", tint: .green) {
+            if timeRange == .year {
+                yearView
+            } else {
+                habitGridView
+            }
+        }
+    }
+
+    // MARK: Year — bar chart of monthly workout counts
+
+    private var yearView: some View {
+        let monthly = monthlyWorkoutCounts()
+        return Group {
+            if monthly.isEmpty {
+                EmptyChartView(message: "No workouts logged this year")
+            } else {
+                Chart {
+                    ForEach(monthly, id: \.date) { item in
+                        BarMark(
+                            x: .value("Month", item.date, unit: .month),
+                            y: .value("Workouts", item.count)
+                        )
+                        .foregroundStyle(Color.green.opacity(0.75))
+                        .cornerRadius(3)
+                    }
+                }
+                .frame(height: 180)
+                .chartXAxis {
+                    AxisMarks(values: .stride(by: .month)) { _ in
+                        AxisGridLine()
+                        AxisValueLabel(format: .dateTime.month(.abbreviated), centered: true)
+                            .font(.caption2)
+                    }
+                }
+                .chartYAxis {
+                    AxisMarks(position: .leading) { value in
+                        AxisGridLine()
+                        AxisValueLabel {
+                            if let v = value.as(Int.self) {
+                                Text("\(v)").font(.caption2)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: Week / Month — habit grid
+
+    private var habitGridView: some View {
+        let days = periodDays()
+        let spacing: CGFloat = timeRange == .week ? 6 : 4
+        let columns = Array(repeating: GridItem(.flexible(), spacing: spacing), count: 7)
+
+        return VStack(alignment: .leading, spacing: 8) {
+            if timeRange == .week {
+                // veryShortWeekdaySymbols is Sun-first (index 0 = Sun); reorder to Mon–Sun
+                let symbols = Calendar.current.veryShortWeekdaySymbols
+                let monToSun = Array(1..<symbols.count) + [0]
+                HStack(spacing: 0) {
+                    ForEach(monToSun, id: \.self) { i in
+                        Text(symbols[i])
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+            }
+            LazyVGrid(columns: columns, spacing: 4) {
+                ForEach(days, id: \.self) { day in
+                    let worked = workoutDays.contains(cal.startOfDay(for: day))
+                    let isToday = cal.isDateInToday(day)
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(worked ? Color.green.opacity(0.75) : Color(.tertiarySystemBackground))
+                        if isToday && !worked {
+                            RoundedRectangle(cornerRadius: 4)
+                                .strokeBorder(Color.green.opacity(0.4), lineWidth: 1)
+                        }
+                        if timeRange == .month {
+                            Text("\(cal.component(.day, from: day))")
+                                .font(.system(size: 9))
+                                .foregroundStyle(worked ? .white : .secondary)
+                        }
+                    }
+                    .aspectRatio(1, contentMode: .fit)
+                }
+            }
+            HStack(spacing: 4) {
+                Text("\(workoutDays.count) workout\(workoutDays.count == 1 ? "" : "s")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Circle().fill(Color.green.opacity(0.75)).frame(width: 8, height: 8)
+                Text("Worked out").font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func periodDays() -> [Date] {
+        let today = cal.startOfDay(for: Date())
+        switch timeRange {
+        case .week:
+            let comps = cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: today)
+            guard let monday = cal.date(from: comps) else { return [] }
+            return (0..<7).compactMap { cal.date(byAdding: .day, value: $0, to: monday) }
+        case .month:
+            var comps = cal.dateComponents([.year, .month], from: today)
+            comps.day = 1
+            guard let first = cal.date(from: comps),
+                  let range = cal.range(of: .day, in: .month, for: first) else { return [] }
+            return (0..<range.count).compactMap { cal.date(byAdding: .day, value: $0, to: first) }
+        case .year:
+            return []
+        }
+    }
+
+    private func monthlyWorkoutCounts() -> [(date: Date, count: Int)] {
+        let byMonth = Dictionary(grouping: workoutDays) { day -> Date in
+            var comps = cal.dateComponents([.year, .month], from: day)
+            comps.day = 1
+            return cal.date(from: comps) ?? day
+        }
+        return byMonth.map { (date: $0.key, count: $0.value.count) }
+            .sorted { $0.date < $1.date }
     }
 }
 
