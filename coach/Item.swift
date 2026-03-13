@@ -118,7 +118,7 @@ struct FoodItem: Decodable, Identifiable, Hashable {
     let nutritionPer100g: Nutrition
 
     struct ServingInfo: Decodable, Hashable {
-        let sizeG: Double
+        let sizeG: Double?
         let description: String?
 
         enum CodingKeys: String, CodingKey {
