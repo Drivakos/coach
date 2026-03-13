@@ -1,6 +1,8 @@
 import SwiftUI
 import Supabase
 import PhotosUI
+import ImageIO
+import UniformTypeIdentifiers
 
 struct DailyCheckInSheet: View {
     @Environment(\.dismiss) private var dismiss
@@ -15,6 +17,7 @@ struct DailyCheckInSheet: View {
     @State private var isLoadingSteps = true
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var selectedPhotoData: Data?
+    @State private var selectedPhotoIsHeic: Bool = true
 
     var existing: DailyCheckIn? = nil
     var onSaved: (DailyCheckIn) -> Void
@@ -174,11 +177,14 @@ struct DailyCheckInSheet: View {
         }
         .onChange(of: selectedPhotoItem) { _, newItem in
             Task {
-                guard let data = try? await newItem?.loadTransferable(type: Data.self) else { return }
-                if let image = UIImage(data: data) {
-                    selectedPhotoData = image.jpegData(compressionQuality: 0.75)
+                guard let raw = try? await newItem?.loadTransferable(type: Data.self),
+                      let image = UIImage(data: raw) else { return }
+                if let heic = Self.heicData(from: image, quality: 0.8) {
+                    selectedPhotoData = heic
+                    selectedPhotoIsHeic = true
                 } else {
-                    selectedPhotoData = data
+                    selectedPhotoData = image.jpegData(compressionQuality: 0.8)
+                    selectedPhotoIsHeic = false
                 }
             }
         }
@@ -195,6 +201,22 @@ struct DailyCheckInSheet: View {
         workoutCompleted = e.workoutCompleted
         workoutNotes = e.workoutNotes ?? ""
         if let s = e.steps { steps = "\(s)" }
+    }
+
+    private static func heicData(from image: UIImage, quality: Double) -> Data? {
+        guard let cgImage = image.cgImage else { return nil }
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            output,
+            UTType.heic.identifier as CFString,
+            1,
+            nil
+        ) else { return nil }
+        CGImageDestinationAddImage(destination, cgImage, [
+            kCGImageDestinationLossyCompressionQuality: quality
+        ] as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return output as Data
     }
 
     private func requestAndFetchSteps() async {
@@ -227,17 +249,23 @@ struct DailyCheckInSheet: View {
 
             // Upload photo if one was selected
             if let photoData = selectedPhotoData {
-                let path = "\(userId)/\(date).jpg"
+                let ext = selectedPhotoIsHeic ? "heic" : "jpg"
+                let contentType = selectedPhotoIsHeic ? "image/heic" : "image/jpeg"
+                let uploadPath = "\(userId)/\(date).\(ext)"
+                // Delete old formats if they exist (format migration)
+                try? await supabase.storage
+                    .from(photosBucket)
+                    .remove(paths: ["\(userId)/\(date).jpg", "\(userId)/\(date).webp", "\(userId)/\(date).heic"].filter { $0 != uploadPath })
                 try await supabase.storage
                     .from(photosBucket)
-                    .upload(path, data: photoData, options: FileOptions(
+                    .upload(uploadPath, data: photoData, options: FileOptions(
                         cacheControl: "3600",
-                        contentType: "image/jpeg",
+                        contentType: contentType,
                         upsert: true
                     ))
                 let publicURL = try supabase.storage
                     .from(photosBucket)
-                    .getPublicURL(path: path)
+                    .getPublicURL(path: uploadPath)
                 struct PhotoUpdate: Encodable { let photo_url: String }
                 try await supabase
                     .from("daily_checkins")
