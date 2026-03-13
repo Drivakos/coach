@@ -12,6 +12,7 @@ struct DailyCheckInSheet: View {
     @State private var workoutCompleted = false
     @State private var workoutNotes = ""
     @State private var steps: String = ""
+    @State private var waterMl: Int = 0
     @State private var isSaving = false
     @State private var saveError: String?
     @State private var isLoadingSteps = true
@@ -31,6 +32,7 @@ struct DailyCheckInSheet: View {
                 weightSection
                 workoutSection
                 stepsSection
+                waterSection
                 photoSection
 
                 if let error = saveError {
@@ -124,6 +126,58 @@ struct DailyCheckInSheet: View {
         }
     }
 
+    private func waterPresetButton(ml: Int, label: String) -> some View {
+        Button(label) { waterMl = ml }
+            .buttonStyle(.borderless)
+            .font(.subheadline)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .background(waterMl == ml ? Color.teal.opacity(0.15) : Color(.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .foregroundStyle(.teal)
+    }
+
+    private var waterSection: some View {
+        Section("Hydration") {
+            HStack {
+                Button { waterMl = max(0, waterMl - 250) } label: {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(waterMl == 0 ? Color(.tertiaryLabel) : .teal)
+                }
+                .buttonStyle(.plain)
+                .disabled(waterMl == 0)
+
+                Spacer()
+
+                VStack(spacing: 2) {
+                    Text(waterMl == 0 ? "—" : Self.formatWater(waterMl))
+                        .font(.title3.bold())
+                    Text("250 ml / step")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button { waterMl = min(10000, waterMl + 250) } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.teal)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.vertical, 4)
+
+            HStack(spacing: 10) {
+                waterPresetButton(ml: 1000, label: "1 L")
+                waterPresetButton(ml: 1500, label: "1.5 L")
+                waterPresetButton(ml: 2000, label: "2 L")
+                waterPresetButton(ml: 3000, label: "3 L")
+            }
+        }
+    }
+
     private var photoSection: some View {
         Section("Progress Photo") {
             if let data = selectedPhotoData, let uiImage = UIImage(data: data) {
@@ -201,6 +255,11 @@ struct DailyCheckInSheet: View {
         workoutCompleted = e.workoutCompleted
         workoutNotes = e.workoutNotes ?? ""
         if let s = e.steps { steps = "\(s)" }
+        if let w = e.waterMl { waterMl = w }
+    }
+
+    static func formatWater(_ ml: Int) -> String {
+        ml % 1000 == 0 ? "\(ml / 1000) L" : String(format: "%.1f L", Double(ml) / 1000)
     }
 
     private static func heicData(from image: UIImage, quality: Double) -> Data? {
@@ -242,7 +301,8 @@ struct DailyCheckInSheet: View {
                 weightKg: weightKg,
                 workoutCompleted: workoutCompleted,
                 workoutNotes: workoutNotes.isEmpty ? nil : workoutNotes,
-                steps: Int(steps)
+                steps: Int(steps),
+                waterMl: waterMl > 0 ? waterMl : nil
             )
 
             let saved = try await checkInService.upsert(payload)

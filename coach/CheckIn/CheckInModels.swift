@@ -11,6 +11,7 @@ struct DailyCheckIn: Identifiable, Decodable {
     let workoutCompleted: Bool
     let workoutNotes: String?
     let steps: Int?
+    let waterMl: Int?
     let createdAt: String
     let updatedAt: String
 
@@ -23,6 +24,7 @@ struct DailyCheckIn: Identifiable, Decodable {
         case workoutCompleted = "workout_completed"
         case workoutNotes = "workout_notes"
         case steps
+        case waterMl = "water_ml"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -35,6 +37,7 @@ struct DailyCheckInUpsert: Encodable {
     let workoutCompleted: Bool
     let workoutNotes: String?
     let steps: Int?
+    let waterMl: Int?
 
     enum CodingKeys: String, CodingKey {
         case userId = "user_id"
@@ -43,6 +46,7 @@ struct DailyCheckInUpsert: Encodable {
         case workoutCompleted = "workout_completed"
         case workoutNotes = "workout_notes"
         case steps
+        case waterMl = "water_ml"
     }
 }
 

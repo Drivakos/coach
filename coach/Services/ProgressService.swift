@@ -23,6 +23,12 @@ struct DailyWeightPoint: Identifiable {
     var id: Date { date }
 }
 
+struct DailyWaterPoint: Identifiable {
+    let date: Date
+    let waterMl: Double
+    var id: Date { date }
+}
+
 struct WeeklyMacros {
     let avgCalories: Double
     let avgProteinG: Double
@@ -74,16 +80,21 @@ struct ProgressService {
         return timeRange == .year ? aggregateCaloriesToMonthly(daily) : daily
     }
 
-    private func aggregateCaloriesToMonthly(_ points: [DailyCaloriePoint]) -> [DailyCaloriePoint] {
+    private func aggregateToMonthly<T>(_ points: [T], date keyPath: KeyPath<T, Date>, make: (Date, [T]) -> T) -> [T] {
         let cal = Calendar.current
         let byMonth = Dictionary(grouping: points) { point -> Date in
-            var comps = cal.dateComponents([.year, .month], from: point.date)
+            var comps = cal.dateComponents([.year, .month], from: point[keyPath: keyPath])
             comps.day = 1
-            return cal.date(from: comps)!
+            return cal.date(from: comps) ?? point[keyPath: keyPath]
         }
-        return byMonth.map { monthDate, pts in
+        return byMonth.map { make($0.key, $0.value) }
+            .sorted { $0[keyPath: keyPath] < $1[keyPath: keyPath] }
+    }
+
+    private func aggregateCaloriesToMonthly(_ points: [DailyCaloriePoint]) -> [DailyCaloriePoint] {
+        aggregateToMonthly(points, date: \.date) { monthDate, pts in
             DailyCaloriePoint(date: monthDate, calories: pts.reduce(0) { $0 + $1.calories } / Double(pts.count))
-        }.sorted { $0.date < $1.date }
+        }
     }
 
     private struct CalorieFoodLogRow: Decodable {
@@ -118,8 +129,8 @@ struct ProgressService {
 
     // MARK: - Weight + Photos (combined to avoid duplicate fetchRange calls)
 
-    /// Returns weight chart points, photo check-ins, and workout days in a single DB round-trip.
-    func fetchCheckInData(for timeRange: ProgressTimeRange) async throws -> (weights: [DailyWeightPoint], photos: [DailyCheckIn], workouts: [Date]) {
+    /// Returns weight, water, photo check-ins, and workout days in a single DB round-trip.
+    func fetchCheckInData(for timeRange: ProgressTimeRange) async throws -> (weights: [DailyWeightPoint], water: [DailyWaterPoint], photos: [DailyCheckIn], workouts: [Date]) {
         let (start, end) = dateRange(for: timeRange)
         let checkIns = try await checkInService.fetchRange(
             from: df.string(from: start),
@@ -130,12 +141,25 @@ struct ProgressService {
             return DailyWeightPoint(date: date, weightKg: w)
         }
         let weights = timeRange == .year ? aggregateWeightsToMonthly(dailyWeights) : dailyWeights
+
+        let dailyWater = checkIns.compactMap { checkIn -> DailyWaterPoint? in
+            guard let w = checkIn.waterMl, w > 0, let date = df.date(from: checkIn.date) else { return nil }
+            return DailyWaterPoint(date: date, waterMl: Double(w))
+        }
+        let water = timeRange == .year ? aggregateWaterToMonthly(dailyWater) : dailyWater
+
         let photos = checkIns.filter { $0.photoUrl != nil }
         let workouts = checkIns.compactMap { ci -> Date? in
             guard ci.workoutCompleted, let date = df.date(from: ci.date) else { return nil }
             return date
         }
-        return (weights, photos, workouts)
+        return (weights, water, photos, workouts)
+    }
+
+    private func aggregateWaterToMonthly(_ points: [DailyWaterPoint]) -> [DailyWaterPoint] {
+        aggregateToMonthly(points, date: \.date) { monthDate, pts in
+            DailyWaterPoint(date: monthDate, waterMl: pts.reduce(0) { $0 + $1.waterMl } / Double(pts.count))
+        }
     }
 
     // MARK: - Dashboard: last 7 days (single food_logs query for both calories and macros)
@@ -217,15 +241,9 @@ struct ProgressService {
     }
 
     private func aggregateWeightsToMonthly(_ points: [DailyWeightPoint]) -> [DailyWeightPoint] {
-        let cal = Calendar.current
-        let byMonth = Dictionary(grouping: points) { point -> Date in
-            var comps = cal.dateComponents([.year, .month], from: point.date)
-            comps.day = 1
-            return cal.date(from: comps)!
-        }
-        return byMonth.map { monthDate, pts in
+        aggregateToMonthly(points, date: \.date) { monthDate, pts in
             DailyWeightPoint(date: monthDate, weightKg: pts.reduce(0) { $0 + $1.weightKg } / Double(pts.count))
-        }.sorted { $0.date < $1.date }
+        }
     }
 
 }

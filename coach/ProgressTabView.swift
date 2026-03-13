@@ -6,6 +6,7 @@ struct ProgressTabView: View {
     @State private var timeRange: ProgressTimeRange = .week
     @State private var caloriePoints: [DailyCaloriePoint] = []
     @State private var weightPoints: [DailyWeightPoint] = []
+    @State private var waterPoints: [DailyWaterPoint] = []
     @State private var photoCheckIns: [DailyCheckIn] = []
     @State private var workoutDays: Set<Date> = []
     @State private var isLoading = false
@@ -46,6 +47,10 @@ struct ProgressTabView: View {
                             weightUnit: appState.weightUnit,
                             timeRange: timeRange
                         )
+                        WaterChartSection(
+                            points: waterPoints,
+                            timeRange: timeRange
+                        )
                         WorkoutChartSection(
                             workoutDays: workoutDays,
                             timeRange: timeRange
@@ -79,6 +84,7 @@ struct ProgressTabView: View {
             let (cal, checkInData) = try await (c, ci)
             caloriePoints = cal
             weightPoints = checkInData.weights
+            waterPoints  = checkInData.water
             photoCheckIns = checkInData.photos
             workoutDays = Set(checkInData.workouts)
         } catch {
@@ -88,6 +94,10 @@ struct ProgressTabView: View {
 }
 
 // MARK: - Shared Axis Helper
+
+private func calUnit(for range: ProgressTimeRange) -> Calendar.Component {
+    range == .year ? .month : .day
+}
 
 @AxisContentBuilder
 private func xAxisContent(for range: ProgressTimeRange) -> some AxisContent {
@@ -119,8 +129,6 @@ private struct CalorieChartSection: View {
     let points: [DailyCaloriePoint]
     let target: Double?
     let timeRange: ProgressTimeRange
-
-    private var calUnit: Calendar.Component { timeRange == .year ? .month : .day }
 
     private var xDomain: ClosedRange<Date> {
         let cal = Calendar(identifier: .iso8601)
@@ -154,7 +162,7 @@ private struct CalorieChartSection: View {
                 Chart {
                     ForEach(points) { point in
                         BarMark(
-                            x: .value("Date", point.date, unit: calUnit),
+                            x: .value("Date", point.date, unit: calUnit(for: timeRange)),
                             y: .value("Calories", point.calories)
                         )
                         .foregroundStyle(barColor(for: point.calories))
@@ -404,6 +412,56 @@ private struct WorkoutChartSection: View {
         }
         return byMonth.map { (date: $0.key, count: $0.value.count) }
             .sorted { $0.date < $1.date }
+    }
+}
+
+// MARK: - Water Chart
+
+private let waterGoalLitres = 2.0
+
+private struct WaterChartSection: View {
+    let points: [DailyWaterPoint]
+    let timeRange: ProgressTimeRange
+
+    var body: some View {
+        ChartCard(title: "Hydration", systemImage: "drop.fill", tint: .teal) {
+            if points.isEmpty {
+                EmptyChartView(message: "No water logged for this period")
+            } else {
+                Chart {
+                    ForEach(points) { point in
+                        BarMark(
+                            x: .value("Date", point.date, unit: calUnit(for: timeRange)),
+                            y: .value("Water (L)", point.waterMl / 1000)
+                        )
+                        .foregroundStyle(Color.teal.opacity(0.75))
+                        .cornerRadius(3)
+                    }
+                    RuleMark(y: .value("Goal", waterGoalLitres))
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [5, 3]))
+                        .foregroundStyle(.secondary.opacity(0.7))
+                        .annotation(position: .top, alignment: .trailing) {
+                            Text("\(Int(waterGoalLitres)) L goal")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .padding(.trailing, 4)
+                        }
+                }
+                .frame(height: 180)
+                .chartXAxis { xAxisContent(for: timeRange) }
+                .chartYAxis {
+                    AxisMarks(position: .leading) { value in
+                        AxisGridLine()
+                        AxisValueLabel {
+                            if let v = value.as(Double.self) {
+                                Text(v < 1 ? "\(Int(v * 1000))ml" : String(format: "%.1gL", v))
+                                    .font(.caption2)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

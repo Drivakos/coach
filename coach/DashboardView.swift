@@ -104,6 +104,14 @@ struct DashboardView: View {
                         }
                     }
                 }
+                if let water = checkIn.waterMl, water > 0 {
+                    HStack {
+                        Label("Water", systemImage: "drop.fill")
+                        Spacer()
+                        Text(water < 1000 ? "\(water) ml" : DailyCheckInSheet.formatWater(water))
+                            .fontWeight(.medium)
+                    }
+                }
                 Button("Edit Check-in") { showCheckInSheet = true }
                     .font(.subheadline)
                     .foregroundStyle(.tint)
@@ -112,7 +120,7 @@ struct DashboardView: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Log your morning check-in").font(.subheadline.bold())
-                            Text("Weight · Workout · Steps").font(.caption).foregroundStyle(.secondary)
+                            Text("Weight · Workout · Steps · Water").font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
                         Image(systemName: "chevron.right").foregroundStyle(.tertiary)
