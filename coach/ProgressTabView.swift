@@ -468,21 +468,46 @@ private struct WaterChartSection: View {
 
 // MARK: - Photos Section
 
+private struct GallerySelection: Identifiable {
+    let id: Int  // start index into photosWithDates
+}
+
 private struct PhotosSection: View {
     let checkIns: [DailyCheckIn]
+    @State private var gallerySelection: GallerySelection? = nil
 
-    private func displayDate(_ dateStr: String) -> String {
-        guard let date = CheckInService.dateFormatter.date(from: dateStr) else { return dateStr }
-        return CheckInService.shortDateFormatter.string(from: date)
+    private var photosWithDates: [(urlString: String, dateLabel: String)] {
+        checkIns.compactMap { checkIn in
+            guard let urlStr = checkIn.photoUrl else { return nil }
+            let label: String
+            if let date = CheckInService.dateFormatter.date(from: checkIn.date) {
+                label = CheckInService.shortDateFormatter.string(from: date)
+            } else {
+                label = checkIn.date
+            }
+            return (urlString: urlStr, dateLabel: label)
+        }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Progress Photos", systemImage: "photo.on.rectangle.angled")
-                .font(.headline)
-                .padding(.horizontal, 4)
+        // Evaluate once — avoids re-running compactMap on each access below
+        let photos = photosWithDates
 
-            if checkIns.isEmpty {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Progress Photos", systemImage: "photo.on.rectangle.angled")
+                    .font(.headline)
+                    .padding(.horizontal, 4)
+                Spacer()
+                if !photos.isEmpty {
+                    Text("\(photos.count) photo\(photos.count == 1 ? "" : "s")")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+                }
+            }
+
+            if photos.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "camera")
                         .font(.largeTitle)
@@ -499,32 +524,97 @@ private struct PhotosSection: View {
                 .padding(.vertical, 32)
                 .background(Color(.secondarySystemBackground))
                 .clipShape(RoundedRectangle(cornerRadius: 12))
-            } else {
-                LazyVGrid(
-                    columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())],
-                    spacing: 8
-                ) {
-                    ForEach(checkIns) { checkIn in
-                        if let urlStr = checkIn.photoUrl {
-                            PhotoTile(urlString: urlStr, dateLabel: displayDate(checkIn.date))
-                        }
+            } else if photos.count <= 2 {
+                HStack(spacing: 8) {
+                    ForEach(photos.indices, id: \.self) { i in
+                        PhotoTile(
+                            urlString: photos[i].urlString,
+                            dateLabel: photos[i].dateLabel,
+                            onTap: { gallerySelection = GallerySelection(id: i) }
+                        )
                     }
                 }
+            } else {
+                PhotoCarousel(photos: photos, onTap: { i in gallerySelection = GallerySelection(id: i) })
             }
         }
+        // item: clears after dismiss animation, preventing mid-animation content teardown
+        .fullScreenCover(item: $gallerySelection) { sel in
+            PhotoGalleryView(photos: photos, startIndex: sel.id)
+        }
+    }
+}
+
+private struct PhotoCarousel: View {
+    let photos: [(urlString: String, dateLabel: String)]
+    let onTap: (Int) -> Void
+    @State private var currentIndex = 0
+
+    var body: some View {
+        VStack(spacing: 10) {
+            TabView(selection: $currentIndex) {
+                ForEach(photos.indices, id: \.self) { i in
+                    PhotoCarouselPage(urlString: photos[i].urlString)
+                        .tag(i)
+                        .onTapGesture { onTap(i) }
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .frame(height: 280)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+
+            HStack(spacing: 6) {
+                ForEach(photos.indices, id: \.self) { i in
+                    Circle()
+                        .fill(i == currentIndex ? Color.primary : Color.secondary.opacity(0.35))
+                        .frame(width: i == currentIndex ? 8 : 6, height: i == currentIndex ? 8 : 6)
+                        .animation(.spring(duration: 0.25), value: currentIndex)
+                }
+            }
+
+            Text(photos[currentIndex].dateLabel)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .animation(.easeInOut(duration: 0.2), value: currentIndex)
+        }
+    }
+}
+
+private struct PhotoCarouselPage: View {
+    let urlString: String
+
+    var body: some View {
+        AsyncImage(url: URL(string: urlString)) { phase in
+            switch phase {
+            case .success(let image):
+                image.resizable().scaledToFit()
+            case .failure:
+                VStack(spacing: 8) {
+                    Image(systemName: "photo").font(.title).foregroundStyle(.tertiary)
+                    Text("Failed to load").font(.caption).foregroundStyle(.tertiary)
+                }
+            case .empty:
+                ProgressView()
+            @unknown default:
+                EmptyView()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.secondarySystemBackground))
     }
 }
 
 private struct PhotoTile: View {
     let urlString: String
     let dateLabel: String
+    let onTap: () -> Void
 
     var body: some View {
         VStack(spacing: 4) {
             AsyncImage(url: URL(string: urlString)) { phase in
                 switch phase {
                 case .success(let image):
-                    image.resizable().scaledToFill()
+                    image.resizable().scaledToFit()
                 case .failure:
                     Image(systemName: "photo")
                         .font(.title2)
@@ -537,13 +627,135 @@ private struct PhotoTile: View {
                     EmptyView()
                 }
             }
-            .aspectRatio(1, contentMode: .fit)
+            .frame(maxWidth: .infinity)
+            .aspectRatio(3/4, contentMode: .fit)
             .background(Color(.secondarySystemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .onTapGesture { onTap() }
 
             Text(dateLabel)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - Full-screen Gallery
+
+private struct PhotoGalleryView: View {
+    let photos: [(urlString: String, dateLabel: String)]
+    @Environment(\.dismiss) private var dismiss
+    @State private var currentIndex: Int
+
+    init(photos: [(urlString: String, dateLabel: String)], startIndex: Int) {
+        self.photos = photos
+        _currentIndex = State(initialValue: startIndex)
+    }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            Color.black.ignoresSafeArea()
+
+            TabView(selection: $currentIndex) {
+                ForEach(photos.indices, id: \.self) { i in
+                    ZoomableAsyncImage(urlString: photos[i].urlString)
+                        .tag(i)
+                        // Force view recreation on page change so zoom/pan state resets
+                        .id(photos[i].urlString)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .ignoresSafeArea()
+
+            // Top bar
+            HStack {
+                Button(action: { dismiss() }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(10)
+                        .background(.ultraThinMaterial, in: Circle())
+                }
+                Spacer()
+                Text(photos[currentIndex].dateLabel)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white)
+                    .animation(.easeInOut(duration: 0.15), value: currentIndex)
+                Spacer()
+                Text("\(currentIndex + 1) / \(photos.count)")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.7))
+                    .monospacedDigit()
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+        }
+    }
+}
+
+private struct ZoomableAsyncImage: View {
+    let urlString: String
+    @State private var scale: CGFloat = 1
+    @State private var lastScale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @State private var lastOffset: CGSize = .zero
+
+    var body: some View {
+        AsyncImage(url: URL(string: urlString)) { phase in
+            switch phase {
+            case .success(let image):
+                image
+                    .resizable()
+                    .scaledToFit()
+                    .scaleEffect(scale)
+                    .offset(offset)
+                    .gesture(
+                        MagnificationGesture()
+                            .onChanged { value in
+                                scale = max(1, lastScale * value)
+                            }
+                            .onEnded { _ in
+                                if scale < 1 {
+                                    resetZoom()
+                                } else {
+                                    lastScale = scale
+                                }
+                            }
+                            .simultaneously(with:
+                                DragGesture()
+                                    .onChanged { value in
+                                        guard scale > 1 else { return }
+                                        offset = CGSize(
+                                            width: lastOffset.width + value.translation.width,
+                                            height: lastOffset.height + value.translation.height
+                                        )
+                                    }
+                                    .onEnded { _ in lastOffset = offset }
+                            )
+                    )
+                    .onTapGesture(count: 2) {
+                        withAnimation(.spring(duration: 0.3)) {
+                            if scale > 1 { resetZoom() } else { scale = 2.5; lastScale = 2.5 }
+                        }
+                    }
+            case .empty:
+                ProgressView().tint(.white)
+            case .failure:
+                VStack(spacing: 8) {
+                    Image(systemName: "photo").font(.largeTitle).foregroundStyle(.tertiary)
+                    Text("Failed to load").font(.caption).foregroundStyle(.tertiary)
+                }
+            @unknown default:
+                EmptyView()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func resetZoom() {
+        withAnimation(.spring(duration: 0.3)) {
+            scale = 1; lastScale = 1; offset = .zero; lastOffset = .zero
         }
     }
 }
