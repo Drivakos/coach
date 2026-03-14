@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 // MARK: - Insight Model
 
@@ -10,6 +11,17 @@ struct CoachInsight: Identifiable {
     let title: String
     let message: String
     let severity: Severity
+}
+
+extension CoachInsight.Severity {
+    var color: Color {
+        switch self {
+        case .success: return .green
+        case .info:    return .blue
+        case .caution: return .orange
+        case .warning: return .red
+        }
+    }
 }
 
 // MARK: - Engine

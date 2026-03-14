@@ -199,7 +199,8 @@ private struct CalorieChartSection: View {
 
     private func barColor(for calories: Double) -> Color {
         guard let target else { return .orange.opacity(0.8) }
-        return calories > target + 200 ? Color.red.opacity(0.7) : Color.orange.opacity(0.8)
+        let overageThreshold: Double = 200  // mirrors CalorieMiniChart.overageThreshold
+        return calories > target + overageThreshold ? Color.red.opacity(0.7) : Color.orange.opacity(0.8)
     }
 }
 
@@ -544,46 +545,6 @@ private struct PhotoTile: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
-    }
-}
-
-// MARK: - Shared Helpers
-
-private struct ChartCard<Content: View>: View {
-    let title: String
-    let systemImage: String
-    let tint: Color
-    let content: Content
-
-    init(title: String, systemImage: String, tint: Color, @ViewBuilder content: () -> Content) {
-        self.title = title
-        self.systemImage = systemImage
-        self.tint = tint
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label(title, systemImage: systemImage)
-                .font(.headline)
-                .foregroundStyle(tint)
-            content
-        }
-        .padding()
-        .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-    }
-}
-
-private struct EmptyChartView: View {
-    let message: String
-
-    var body: some View {
-        Text(message)
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 40)
     }
 }
 
