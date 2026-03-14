@@ -12,6 +12,8 @@ struct ContentView: View {
     @State private var addingMeal: MealType?
     @State private var logToEdit: FoodLog?
     @State private var mealToClear: MealType?
+    @State private var logToCopy: FoodLog?
+    @State private var mealTypeToCopy: MealType?
     @State private var errorMessage: String?
 
     private let service = FoodLogService()
@@ -67,6 +69,16 @@ struct ContentView: View {
                             .buttonStyle(.plain)
                             .padding(.leading, 8)
                         }
+                        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                            if !items.isEmpty {
+                                Button {
+                                    mealTypeToCopy = meal
+                                } label: {
+                                    Label("Copy", systemImage: "doc.on.doc")
+                                }
+                                .tint(.blue)
+                            }
+                        }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             if !items.isEmpty {
                                 Button(role: .destructive) {
@@ -85,6 +97,14 @@ struct ContentView: View {
                                 FoodLogRow(log: log)
                             }
                             .buttonStyle(.plain)
+                            .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                                Button {
+                                    logToCopy = log
+                                } label: {
+                                    Label("Copy", systemImage: "doc.on.doc")
+                                }
+                                .tint(.blue)
+                            }
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button(role: .destructive) {
                                     Task { await deleteLog(log) }
@@ -114,6 +134,17 @@ struct ContentView: View {
             .sheet(item: $logToEdit) { log in
                 EditServingSheet(log: log) { updated in
                     Task { await updateLog(updated) }
+                }
+            }
+            .sheet(item: $logToCopy) { log in
+                CopyMealSheet(title: "Copy \(log.name)", currentDate: selectedDate) { dates in
+                    Task { await copyLogs([log], to: dates) }
+                }
+            }
+            .sheet(item: $mealTypeToCopy) { meal in
+                CopyMealSheet(title: "Copy \(meal.label)", currentDate: selectedDate) { dates in
+                    let items = logsByMeal[meal] ?? []
+                    Task { await copyLogs(items, to: dates) }
                 }
             }
             .task(id: selectedDate) { await fetchLogs() }
@@ -263,6 +294,31 @@ struct ContentView: View {
         do {
             try await service.delete(log)
             logs.removeAll { $0.id == log.id }
+            NotificationCenter.default.post(name: .foodLogChanged, object: nil)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func copyLogs(_ sourceLogs: [FoodLog], to dates: [Date]) async {
+        let cal = Calendar.current
+        do {
+            for date in dates {
+                for log in sourceLogs {
+                    let timeComponents = cal.dateComponents([.hour, .minute, .second], from: log.loggedAt)
+                    let targetDate = cal.date(
+                        bySettingHour: timeComponents.hour ?? 12,
+                        minute: timeComponents.minute ?? 0,
+                        second: timeComponents.second ?? 0,
+                        of: date
+                    ) ?? date
+                    let payload = FoodLogInsert(copying: log, loggedAt: targetDate)
+                    let inserted = try await service.insert(payload)
+                    if cal.isDate(date, inSameDayAs: selectedDate) {
+                        logs.append(inserted)
+                    }
+                }
+            }
             NotificationCenter.default.post(name: .foodLogChanged, object: nil)
         } catch {
             errorMessage = error.localizedDescription

@@ -106,6 +106,23 @@ struct FoodLogInsert: Encodable {
     }
 }
 
+extension FoodLogInsert {
+    init(copying log: FoodLog, loggedAt: Date) {
+        self.init(
+            name: log.name, brand: log.brand,
+            calories: log.calories, protein: log.protein,
+            carbs: log.carbs, fat: log.fat,
+            fiberG: log.fiberG, sugarsG: log.sugarsG,
+            addedSugarsG: log.addedSugarsG, saturatedFatG: log.saturatedFatG,
+            monounsatFatG: log.monounsatFatG, polyunsatFatG: log.polyunsatFatG,
+            transFatG: log.transFatG, sodiumMg: log.sodiumMg,
+            cholesterolMg: log.cholesterolMg, servingSize: log.servingSize,
+            quantityGrams: log.quantityGrams, mealType: log.mealType,
+            loggedAt: loggedAt, foodDbId: log.foodDbId
+        )
+    }
+}
+
 // MARK: - Food catalog item (from our MongoDB / food-api)
 
 struct FoodItem: Decodable, Identifiable, Hashable {
