@@ -147,7 +147,8 @@ struct ContentView: View {
 
     private var calorieSummaryCard: some View {
         let t = totals
-        let target = appState.nutritionTarget?.calories ?? 0
+        let nt = appState.nutritionTarget
+        let target = nt?.calories ?? 0
         let remaining = max(0, target - t.calories)
         return VStack(spacing: 12) {
             HStack {
@@ -172,22 +173,36 @@ struct ContentView: View {
 
             if target > 0 {
                 GeometryReader { geo in
+                    let proteinKcal = t.protein * 4
+                    let carbsKcal   = t.carbs * 4
+                    let fatKcal     = t.fat * 9
+                    let totalKcal   = proteinKcal + carbsKcal + fatKcal
+                    let scale       = min(totalKcal / target, 1.0)
+                    let barW        = geo.size.width * scale
+                    let factor      = totalKcal > 0 ? barW / totalKcal : 0
+                    let pW          = factor * proteinKcal
+                    let cW          = factor * carbsKcal
+                    let fW          = factor * fatKcal
+
                     ZStack(alignment: .leading) {
                         RoundedRectangle(cornerRadius: 4)
                             .fill(Color(.systemFill))
                             .frame(height: 8)
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(t.calories >= target ? Color.red : Color.accentColor)
-                            .frame(width: min(geo.size.width, geo.size.width * t.calories / target), height: 8)
+                        HStack(spacing: 0) {
+                            Rectangle().fill(Color.blue)   .frame(width: pW, height: 8)
+                            Rectangle().fill(Color.orange) .frame(width: cW, height: 8)
+                            Rectangle().fill(Color.yellow) .frame(width: fW, height: 8)
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
                     }
                 }
                 .frame(height: 8)
             }
 
             HStack {
-                macroChip("P", value: t.protein, color: .blue)
-                macroChip("C", value: t.carbs, color: .orange)
-                macroChip("F", value: t.fat, color: .yellow)
+                macroChip("P", value: t.protein, target: nt?.proteinG, color: .blue)
+                macroChip("C", value: t.carbs,   target: nt?.carbsG,   color: .orange)
+                macroChip("F", value: t.fat,     target: nt?.fatG,     color: .yellow)
             }
         }
         .padding()
@@ -195,12 +210,19 @@ struct ContentView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
-    private func macroChip(_ label: String, value: Double, color: Color) -> some View {
-        HStack(spacing: 4) {
+    private func macroChip(_ label: String, value: Double, target: Double?, color: Color) -> some View {
+        let isOver = target.map { value > $0 } ?? false
+        return HStack(spacing: 4) {
             Circle().fill(color).frame(width: 8, height: 8)
-            Text("\(label) \(Int(value))g")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.secondary)
+            Group {
+                if let t = target {
+                    Text("\(label) \(Int(value))/\(Int(t))g")
+                } else {
+                    Text("\(label) \(Int(value))g")
+                }
+            }
+            .font(.caption.weight(.medium))
+            .foregroundStyle(isOver ? color : .secondary)
         }
         .frame(maxWidth: .infinity)
     }
