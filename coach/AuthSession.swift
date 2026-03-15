@@ -8,6 +8,9 @@ enum AuthState { case loading, signedIn, signedOut }
 final class AuthSession {
     var state: AuthState = .loading
     var profileComplete: Bool = false
+    /// Set when `checkProfileComplete()` fails due to a network/server error.
+    /// Distinct from `profileComplete == false`, which means the profile is genuinely unfinished.
+    var profileCheckFailed: Bool = false
 
     init() {
         Task {
@@ -25,6 +28,7 @@ final class AuthSession {
                 case .signedOut:
                     state = .signedOut
                     profileComplete = false
+                    profileCheckFailed = false
                 default:
                     break
                 }
@@ -55,9 +59,13 @@ final class AuthSession {
                 .execute()
                 .value
 
+            profileCheckFailed = false
             profileComplete = hasName && hasSex && !targets.isEmpty
         } catch {
-            profileComplete = false
+            // Don't set profileComplete = false here — a network error doesn't mean the
+            // profile is incomplete. Set profileCheckFailed so the UI can show a retry
+            // prompt instead of routing to SetupWizardView.
+            profileCheckFailed = true
         }
     }
 }

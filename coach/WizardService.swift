@@ -8,9 +8,7 @@ struct WizardService {
         let email  = session.user.email ?? ""
 
         // 1. UPSERT public.users (guards against missing row if auth trigger didn't fire)
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd"
-        let dobString = dateFormatter.string(from: data.dateOfBirth)
+        let dobString = CheckInService.dateFormatter.string(from: data.dateOfBirth)
 
         struct UserUpsert: Encodable {
             let id: UUID

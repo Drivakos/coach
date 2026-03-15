@@ -5,9 +5,11 @@ struct WeeklySummaryService {
 
     private let checkInService = CheckInService()
 
-    // Minimal projection for computing macro averages from food_logs
+    // Minimal projection for computing macro averages from food_logs.
+    // loggedAt is kept as String to avoid decoder configuration issues with supabase-swift's
+    // internal decoder; we only need the date prefix for day-grouping.
     private struct FoodLogProjection: Decodable {
-        let loggedAt: Date
+        let loggedAt: String
         let calories: Double
         let proteinG: Double
         let carbsG: Double
@@ -44,8 +46,6 @@ struct WeeklySummaryService {
         let checkIns = try await checkInService.fetchRange(from: weekStart, to: sundayStr)
 
         // 2. Food logs for the week
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
         let foodLogs: [FoodLogProjection] = try await supabase
             .from("food_logs")
             .select("logged_at, calories, protein_g, carbs_g, fat_g")
@@ -65,9 +65,10 @@ struct WeeklySummaryService {
         let stepValues = checkIns.compactMap(\.steps).map(Double.init)
         let avgSteps: Double? = stepValues.isEmpty ? nil : stepValues.reduce(0, +) / Double(stepValues.count)
 
-        // 6. Macro averages: group by day, sum per day, then average across 7 days
+        // 6. Macro averages: group by day, sum per day, then average across 7 days.
+        // ISO timestamps always begin with yyyy-MM-dd, so prefix(10) is a safe day key.
         let logsByDay = Dictionary(grouping: foodLogs) { log in
-            df.string(from: cal.startOfDay(for: log.loggedAt))
+            String(log.loggedAt.prefix(10))
         }
         let dailyCalories = logsByDay.values.map { $0.reduce(0) { $0 + $1.calories } }
         let dailyProtein  = logsByDay.values.map { $0.reduce(0) { $0 + $1.proteinG } }

@@ -29,6 +29,19 @@ struct coachApp: App {
                     if session.profileComplete {
                         MainTabView()
                             .environment(appState)
+                    } else if session.profileCheckFailed {
+                        VStack(spacing: 16) {
+                            Text("Couldn't Load Profile")
+                                .font(.headline)
+                            Text("Check your connection and try again.")
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                            Button("Retry") {
+                                Task { await session.checkProfileComplete() }
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                        .padding()
                     } else {
                         SetupWizardView(onComplete: {
                             session.profileComplete = true
