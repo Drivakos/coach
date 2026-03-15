@@ -312,10 +312,7 @@ struct DailyCheckInSheet: View {
                 let ext = selectedPhotoIsHeic ? "heic" : "jpg"
                 let contentType = selectedPhotoIsHeic ? "image/heic" : "image/jpeg"
                 let uploadPath = "\(userId)/\(date).\(ext)"
-                // Delete old formats if they exist (format migration)
-                try? await supabase.storage
-                    .from(photosBucket)
-                    .remove(paths: ["\(userId)/\(date).jpg", "\(userId)/\(date).webp", "\(userId)/\(date).heic"].filter { $0 != uploadPath })
+
                 try await supabase.storage
                     .from(photosBucket)
                     .upload(uploadPath, data: photoData, options: FileOptions(

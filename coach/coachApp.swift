@@ -39,6 +39,15 @@ struct coachApp: App {
                 }
             }
             .environment(session)
+            .alert("Couldn't Load Profile", isPresented: Binding(
+                get: { appState.profileLoadError != nil },
+                set: { if !$0 { appState.profileLoadError = nil } }
+            )) {
+                Button("Retry") { Task { await appState.loadProfile() } }
+                Button("Dismiss", role: .cancel) { appState.profileLoadError = nil }
+            } message: {
+                Text(appState.profileLoadError ?? "")
+            }
             .task(id: session.state) {
                 guard session.state == .signedIn else { return }
                 appState.listenForNotificationTaps()

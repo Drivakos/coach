@@ -14,6 +14,7 @@ struct DashboardView: View {
     @State private var weeklyMacros: WeeklyMacros? = nil
     @State private var loadTask: Task<Void, Never>? = nil
     @State private var refreshTask: Task<Void, Never>? = nil
+    @State private var loadError: String? = nil
 
     private let checkInService = CheckInService()
     private let foodLogService = FoodLogService()
@@ -70,11 +71,27 @@ struct DashboardView: View {
                 .padding(.bottom, 32)
             }
             .navigationTitle("Dashboard")
+            .alert("Couldn't Load Data", isPresented: Binding(
+                get: { loadError != nil },
+                set: { if !$0 { loadError = nil } }
+            )) {
+                Button("Retry") {
+                    loadError = nil
+                    loadTask?.cancel()
+                    loadTask = Task { await loadAll() }
+                }
+                Button("Dismiss", role: .cancel) { loadError = nil }
+            } message: {
+                Text(loadError ?? "")
+            }
             .onAppear {
                 loadTask?.cancel()
                 loadTask = Task { await loadAll() }
             }
-            .refreshable { await loadAll() }
+            .refreshable {
+                loadTask?.cancel()
+                await loadAll()
+            }
             .onReceive(NotificationCenter.default.publisher(for: .foodLogChanged)) { _ in
                 refreshTask?.cancel()
                 refreshTask = Task { await refreshNutrition() }
@@ -303,8 +320,11 @@ struct DashboardView: View {
 
     // MARK: - Data loading
 
+    @MainActor
     private func loadAll() async {
         isLoading = true
+        defer { isLoading = false }
+
         async let checkInFetch   = checkInService.fetchToday()
         async let weightsFetch   = progressService.fetchLast7DayWeights()
         async let nutritionFetch = foodLogService.fetchTotals(for: Date())
@@ -312,16 +332,20 @@ struct DashboardView: View {
         async let stepsFetch     = HealthKitService.shared.fetchTodaySteps()
 
         do { todayCheckIn = try await checkInFetch }
-        catch { print("DashboardView checkIn error:", error) }
+        catch { loadError = error.localizedDescription }
+
+        guard !Task.isCancelled else { return }
 
         weekWeightPoints = (try? await weightsFetch) ?? []
         liveSteps        = await stepsFetch
+
+        guard !Task.isCancelled else { return }
+
         nutrition        = (try? await nutritionFetch) ?? FoodLogTotals()
         if let data      = try? await dashboardFetch {
             weekCaloriePoints = data.calories
             weeklyMacros      = data.macros
         }
-        isLoading = false
     }
 
     private func refreshNutrition() async {

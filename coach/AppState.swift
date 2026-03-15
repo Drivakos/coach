@@ -42,6 +42,9 @@ final class AppState {
     /// Set to true by the notification tap handler to open the check-in sheet.
     var showCheckIn: Bool = false
 
+    /// Non-nil when `loadProfile()` fails — observed by coachApp to show a retry alert.
+    var profileLoadError: String? = nil
+
     /// User's preferred weight display unit, loaded from Supabase on sign-in.
     var weightUnit: WeightUnit = .kg
 
@@ -74,6 +77,7 @@ final class AppState {
     // MARK: - Profile loading
 
     func loadProfile() async {
+        profileLoadError = nil
         do {
             let result = try await _fetchProfileData()
 
@@ -97,6 +101,7 @@ final class AppState {
             if let w = result.profileWeightKg { profileWeightKg = w }
         } catch {
             print("AppState loadProfile error:", error)
+            profileLoadError = error.localizedDescription
         }
     }
 
@@ -131,14 +136,25 @@ final class AppState {
         }
     }
 
+    private var checkInObserver: NSObjectProtocol?
+
     /// Subscribes to Apple NotificationCenter posts from the notification delegate.
     func listenForNotificationTaps() {
-        NotificationCenter.default.addObserver(
+        if let observer = checkInObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        checkInObserver = NotificationCenter.default.addObserver(
             forName: .openCheckIn,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             self?.showCheckIn = true
+        }
+    }
+
+    deinit {
+        if let observer = checkInObserver {
+            NotificationCenter.default.removeObserver(observer)
         }
     }
 }

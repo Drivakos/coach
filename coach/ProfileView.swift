@@ -532,6 +532,7 @@ private struct ProfileEditSheet: View {
 
     // MARK: - Save
 
+    @MainActor
     private func save() async {
         // Capture ALL form state synchronously before any await.
         let snapFullName      = fullName

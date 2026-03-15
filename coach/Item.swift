@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Supabase
 
 // MARK: - Supabase Model
 
@@ -281,14 +282,12 @@ struct FoodItem: Decodable, Identifiable, Hashable {
 // MARK: - Food search service (local catalog → Perplexity)
 
 enum FoodSearchError: LocalizedError {
-    case apiKeyMissing
     case httpError(statusCode: Int, body: String)
     case emptyResponse
     case decodingFailed
 
     var errorDescription: String? {
         switch self {
-        case .apiKeyMissing:    return "Food search is not configured."
         case .httpError(let code, _): return "Search service unavailable (HTTP \(code))."
         case .emptyResponse:    return "No results returned from search."
         case .decodingFailed:   return "Could not read search results."
@@ -313,82 +312,35 @@ struct FoodSearchService {
 
         try Task.checkCancellation()
 
-        // 2. Perplexity
-        guard !PerplexityClient.apiKey.isEmpty else {
-            throw FoodSearchError.apiKeyMissing
-        }
+        // 2. Edge Function → Perplexity (key stays server-side)
         return try await callPerplexity(query: query)
     }
 
     // MARK: - Private
 
     private func callPerplexity(query: String) async throws -> [FoodItem] {
-        let systemPrompt = """
-        You are a nutrition database API. Respond with a JSON object only — no prose, no markdown fences.
-        Use this exact structure:
-        {
-          "items": [
-            {
-              "name": "string",
-              "brand": "string or null",
-              "category": "dairy|meat|grain|vegetable|fruit|snack|beverage|legume|other or null",
-              "barcodes": [],
-              "serving": { "size_g": number, "description": "string or null" },
-              "nutrition_per_100g": {
-                "calories": number,
-                "protein_g": number,
-                "carbs": { "total_g": number, "fiber_g": number or null, "sugars_g": number or null, "added_sugars_g": number or null },
-                "fat": { "total_g": number, "saturated_g": number or null, "monounsaturated_g": number or null, "polyunsaturated_g": number or null, "trans_g": number or null },
-                "sodium_mg": number or null,
-                "cholesterol_mg": number or null
-              }
-            }
-          ]
-        }
-        All values are per 100g. calories, protein_g, carbs.total_g, and fat.total_g MUST be real numbers — never null. Only return items you have actual nutrition data for.
-        """
-        let userPrompt = "Return up to 5 food items matching \"\(query)\". Prefer common, well-known foods with verified nutrition data."
-
-        let messages: [[String: Any]] = [
-            ["role": "system", "content": systemPrompt],
-            ["role": "user",   "content": userPrompt]
-        ]
-        let request = try PerplexityClient.buildRequest(messages: messages, temperature: 0.1, timeout: 20)
-
-        let (data, urlResponse) = try await URLSession.shared.data(for: request)
-        let statusCode = (urlResponse as? HTTPURLResponse)?.statusCode ?? 0
-
-        guard statusCode == 200 else {
-            #if DEBUG
-            let responseBody = String(data: data, encoding: .utf8) ?? "<non-UTF8>"
-            print("[Perplexity] HTTP \(statusCode): \(responseBody)")
-            #endif
-            throw FoodSearchError.httpError(statusCode: statusCode, body: String(data: data, encoding: .utf8) ?? "")
-        }
-
-        let apiResponse = try PerplexityClient.decoder.decode(PerplexityClient.Response.self, from: data)
-
-        guard let content = apiResponse.choices.first?.message.content else {
-            throw FoodSearchError.emptyResponse
-        }
-
-        #if DEBUG
-        print("[Perplexity] Content: \(content)")
-        #endif
-
+        struct Payload: Encodable { let query: String }
         do {
-            let jsonData = try PerplexityClient.extractJSON(from: content)
-            let wrapper  = try PerplexityClient.decoder.decode(ItemsWrapper.self, from: jsonData)
-            let valid    = wrapper.items.filter { $0.nutritionPer100g.calories > 0 }
+            let wrapper: ItemsWrapper = try await supabase.functions
+                .invoke("search-food", options: .init(body: Payload(query: query)))
+            let valid = wrapper.items.filter { $0.nutritionPer100g.calories > 0 }
             #if DEBUG
-            print("[Perplexity] Decoded \(wrapper.items.count) items, \(valid.count) with calorie data.")
+            print("[FoodSearch] Edge function returned \(wrapper.items.count) items, \(valid.count) with calorie data.")
             #endif
+            if valid.isEmpty { throw FoodSearchError.emptyResponse }
             return valid
-        } catch {
+        } catch let error as FoodSearchError {
+            throw error
+        } catch let error as DecodingError {
             #if DEBUG
-            print("[Perplexity] Decode error: \(error)")
+            print("[FoodSearch] Decode error: \(error)")
             #endif
             throw FoodSearchError.decodingFailed
+        } catch {
+            #if DEBUG
+            print("[FoodSearch] Edge function error: \(error)")
+            #endif
+            throw error
         }
     }
 }
