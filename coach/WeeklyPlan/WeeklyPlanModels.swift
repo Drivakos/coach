@@ -33,27 +33,6 @@ enum MealType: String, CaseIterable, Codable, Identifiable {
     }
 }
 
-// MARK: - Engine output (in-memory, no DB IDs)
-
-struct EngineDay {
-    let dayOfWeek: Int      // 1 = Monday, 7 = Sunday
-    let meals: [EngineMeal]
-}
-
-struct EngineMeal {
-    let type: MealType
-    let items: [EngineItem]
-}
-
-struct EngineItem {
-    let name: String
-    let calories: Double
-    let proteinG: Double
-    let carbsG: Double
-    let fatG: Double
-    let quantityGrams: Double
-}
-
 // MARK: - DB read models (fetched via nested Supabase select)
 
 struct MealPlanDay: Identifiable, Decodable {
@@ -86,10 +65,12 @@ struct MealPlanMeal: Identifiable, Decodable {
         case items    = "meal_plan_items"
     }
 
-    var totalCalories: Double { items.reduce(0) { $0 + $1.calories } }
-    var totalProtein:  Double { items.reduce(0) { $0 + $1.proteinG } }
-    var totalCarbs:    Double { items.reduce(0) { $0 + $1.carbsG   } }
-    var totalFat:      Double { items.reduce(0) { $0 + $1.fatG     } }
+    var totalCalories:   Double { items.reduce(0) { $0 + $1.calories } }
+    var totalProtein:    Double { items.reduce(0) { $0 + $1.proteinG } }
+    var totalCarbs:      Double { items.reduce(0) { $0 + $1.carbsG   } }
+    var totalFat:        Double { items.reduce(0) { $0 + $1.fatG     } }
+    /// Calories from primary (non-alternative) items only — used in the weekly plan view.
+    var primaryCalories: Double { items.filter { !$0.isAlternative }.reduce(0) { $0 + $1.calories } }
 }
 
 struct MealPlanItem: Identifiable, Decodable {
@@ -101,14 +82,33 @@ struct MealPlanItem: Identifiable, Decodable {
     var fatG: Double
     var quantityGrams: Double
     var sortOrder: Int
+    var isFamiliar: Bool
+    var isAlternative: Bool
 
     enum CodingKeys: String, CodingKey {
         case id, name, calories
-        case proteinG     = "protein_g"
-        case carbsG       = "carbs_g"
-        case fatG         = "fat_g"
+        case proteinG      = "protein_g"
+        case carbsG        = "carbs_g"
+        case fatG          = "fat_g"
         case quantityGrams = "quantity_grams"
-        case sortOrder    = "sort_order"
+        case sortOrder     = "sort_order"
+        case isFamiliar    = "is_familiar"
+        case isAlternative = "is_alternative"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id            = try c.decode(UUID.self,   forKey: .id)
+        name          = try c.decode(String.self, forKey: .name)
+        calories      = try c.decode(Double.self, forKey: .calories)
+        proteinG      = try c.decode(Double.self, forKey: .proteinG)
+        carbsG        = try c.decode(Double.self, forKey: .carbsG)
+        fatG          = try c.decode(Double.self, forKey: .fatG)
+        quantityGrams = try c.decode(Double.self, forKey: .quantityGrams)
+        sortOrder     = try c.decode(Int.self,    forKey: .sortOrder)
+        // Columns added in migration — default false for older rows
+        isFamiliar    = (try? c.decode(Bool.self, forKey: .isFamiliar))    ?? false
+        isAlternative = (try? c.decode(Bool.self, forKey: .isAlternative)) ?? false
     }
 }
 
@@ -143,6 +143,8 @@ struct MealPlanItemInsert: Encodable {
     let fatG: Double
     let quantityGrams: Double
     let sortOrder: Int
+    let isFamiliar: Bool
+    let isAlternative: Bool
     enum CodingKeys: String, CodingKey {
         case mealPlanMealId = "meal_plan_meal_id"
         case name, calories
@@ -151,6 +153,8 @@ struct MealPlanItemInsert: Encodable {
         case fatG          = "fat_g"
         case quantityGrams = "quantity_grams"
         case sortOrder     = "sort_order"
+        case isFamiliar    = "is_familiar"
+        case isAlternative = "is_alternative"
     }
 }
 
@@ -182,37 +186,3 @@ struct WeeklyPlan: Identifiable, Decodable {
     }
 }
 
-struct WeeklyPlanInsert: Encodable {
-    let userId: UUID
-    let weekStart: String
-    let calories: Double
-    let proteinG: Double
-    let carbsG: Double
-    let fatG: Double
-    let adjustmentKcal: Double
-    let adjustmentReason: String?
-    let needsAIPlan: Bool
-
-    enum CodingKeys: String, CodingKey {
-        case userId           = "user_id"
-        case weekStart        = "week_start"
-        case calories
-        case proteinG         = "protein_g"
-        case carbsG           = "carbs_g"
-        case fatG             = "fat_g"
-        case adjustmentKcal   = "adjustment_kcal"
-        case adjustmentReason = "adjustment_reason"
-        case needsAIPlan      = "needs_ai_plan"
-    }
-}
-
-// MARK: - Engine result
-
-struct WeeklyPlanAdjustment {
-    let calories: Double
-    let proteinG: Double
-    let carbsG: Double
-    let fatG: Double
-    let deltaKcal: Double
-    let reason: String
-}

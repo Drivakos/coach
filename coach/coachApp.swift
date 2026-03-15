@@ -44,9 +44,8 @@ struct coachApp: App {
                 appState.listenForNotificationTaps()
                 await appState.loadProfile()
                 await NotificationService.shared.requestPermissionAndSchedule()
-                if let target = appState.nutritionTarget {
-                    await WeeklyPlanService().generateIfNeeded(goal: appState.goal, currentTarget: target)
-                }
+                // Plan generation now runs server-side via pg_cron every Monday.
+                // The app just reads the pre-generated plan from the DB.
             }
         }
     }

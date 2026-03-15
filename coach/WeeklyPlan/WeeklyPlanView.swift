@@ -69,7 +69,7 @@ struct WeeklyPlanView: View {
             if plan.needsAIPlan || days.isEmpty {
                 needsAISection
             } else {
-                mealPlanHeader
+                mealPlanHeader(plan: plan)
                 mealPlanDays
             }
         }
@@ -122,11 +122,16 @@ struct WeeklyPlanView: View {
     // MARK: - Meal plan header
 
     @ViewBuilder
-    private var mealPlanHeader: some View {
+    private func mealPlanHeader(plan: WeeklyPlan) -> some View {
         Section {
-            Label("Based on your recent food history", systemImage: "fork.knife.circle")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            Label(
+                plan.needsAIPlan
+                    ? "AI-personalised based on your goals"
+                    : "Based on your recent food history",
+                systemImage: plan.needsAIPlan ? "sparkles" : "fork.knife.circle"
+            )
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
         } header: {
             Label("7-Day Meal Plan", systemImage: "calendar")
         }
@@ -153,15 +158,31 @@ struct WeeklyPlanView: View {
         }
     }
 
-    // MARK: - Meal row (expandable, with add + delete)
+    // MARK: - Meal row (expandable, primary + alternatives + add)
 
     @ViewBuilder
     private func mealRow(meal: Binding<MealPlanMeal>, day: Binding<MealPlanDay>) -> some View {
         let m = meal.wrappedValue
+        let primaryItems = m.items.filter { !$0.isAlternative }
+        let altItems     = m.items.filter { $0.isAlternative }
+
         DisclosureGroup {
-            ForEach(m.items) { item in
-                itemRow(item: item, meal: meal, day: day)
+            // Primary recommended items
+            ForEach(primaryItems) { item in
+                itemRow(item: item, meal: meal, day: day, isAlt: false)
             }
+
+            // Alternatives section
+            if !altItems.isEmpty {
+                Text("Alternatives")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 4)
+                ForEach(altItems) { item in
+                    itemRow(item: item, meal: meal, day: day, isAlt: true)
+                }
+            }
+
             // Add food button
             Button {
                 addingToMeal = m
@@ -176,8 +197,8 @@ struct WeeklyPlanView: View {
                 Label(m.mealType.label, systemImage: m.mealType.icon)
                     .font(.subheadline)
                 Spacer()
-                if !m.items.isEmpty {
-                    Text("\(Int(m.totalCalories)) kcal")
+                if !primaryItems.isEmpty {
+                    Text("\(Int(m.primaryCalories)) kcal")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -188,10 +209,24 @@ struct WeeklyPlanView: View {
     // MARK: - Item row (swipe to delete)
 
     @ViewBuilder
-    private func itemRow(item: MealPlanItem, meal: Binding<MealPlanMeal>, day: Binding<MealPlanDay>) -> some View {
+    private func itemRow(
+        item: MealPlanItem,
+        meal: Binding<MealPlanMeal>,
+        day: Binding<MealPlanDay>,
+        isAlt: Bool
+    ) -> some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.name).font(.subheadline)
+                HStack(spacing: 4) {
+                    Text(item.name)
+                        .font(.subheadline)
+                        .foregroundStyle(isAlt ? .secondary : .primary)
+                    if item.isFamiliar {
+                        Image(systemName: "star.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.yellow)
+                    }
+                }
                 Text("\(Int(item.quantityGrams))g · P \(Int(item.proteinG))g · C \(Int(item.carbsG))g · F \(Int(item.fatG))g")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -199,7 +234,7 @@ struct WeeklyPlanView: View {
             Spacer()
             Text("\(Int(item.calories)) kcal")
                 .font(.caption.bold())
-                .foregroundStyle(.secondary)
+                .foregroundStyle(isAlt ? .tertiary : .secondary)
         }
         .padding(.vertical, 2)
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -211,15 +246,15 @@ struct WeeklyPlanView: View {
         }
     }
 
-    // MARK: - Needs AI placeholder
+    // MARK: - Needs AI placeholder (shown only if Perplexity call also failed)
 
     @ViewBuilder
     private var needsAISection: some View {
         Section("Meal Plan") {
             VStack(alignment: .leading, spacing: 8) {
-                Label("Not enough data yet", systemImage: "clock.badge.questionmark")
+                Label("Generating your plan…", systemImage: "sparkles")
                     .font(.subheadline.bold())
-                Text("Log your food for at least 7 days to get a personalised meal plan built from your eating habits. AI-generated plans are coming soon.")
+                Text("We're building a personalised meal plan for you. Pull down to refresh — this usually takes just a moment.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -277,7 +312,9 @@ struct WeeklyPlanView: View {
                 carbsG:         logInsert.carbs,
                 fatG:           logInsert.fat,
                 quantityGrams:  logInsert.quantityGrams,
-                sortOrder:      meal.items.count
+                sortOrder:      meal.items.count,
+                isFamiliar:     false,
+                isAlternative:  false
             ))
             // Append to the correct meal in local state
             if let di = days.firstIndex(where: { $0.meals.contains { $0.id == meal.id } }),
@@ -306,15 +343,10 @@ struct WeeklyPlanView: View {
     }
 
     private func regenerate() async {
-        guard let target = appState.nutritionTarget else { return }
         isRegenerating = true
         errorMessage   = nil
         do {
-            let generated = try await service.generateForWeek(
-                CheckInService.mondayString(),
-                goal: appState.goal,
-                currentTarget: target
-            )
+            let generated = try await service.generateForCurrentWeek(force: true)
             plan = generated
             days = try await service.fetchDays(forPlan: generated.id)
         } catch {

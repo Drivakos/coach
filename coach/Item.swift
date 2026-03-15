@@ -296,24 +296,9 @@ enum FoodSearchError: LocalizedError {
     }
 }
 
-// Hoisted so they aren't redefined on every call to callPerplexity
-private struct PerplexityResponse: Decodable {
-    struct Choice: Decodable {
-        struct Message: Decodable { let content: String }
-        let message: Message
-    }
-    let choices: [Choice]
-}
-
 private struct ItemsWrapper: Decodable { let items: [FoodItem] }
 
 struct FoodSearchService {
-
-    private static let perplexityKey: String = {
-        Bundle.main.infoDictionary?["PERPLEXITY_API_KEY"] as? String ?? ""
-    }()
-    private static let perplexityURL = URL(string: "https://api.perplexity.ai/chat/completions")!
-    private static let decoder = JSONDecoder()
 
     func search(query: String) async throws -> [FoodItem] {
         // 1. Local catalog — fast and free
@@ -329,7 +314,7 @@ struct FoodSearchService {
         try Task.checkCancellation()
 
         // 2. Perplexity
-        guard !Self.perplexityKey.isEmpty else {
+        guard !PerplexityClient.apiKey.isEmpty else {
             throw FoodSearchError.apiKeyMissing
         }
         return try await callPerplexity(query: query)
@@ -364,21 +349,11 @@ struct FoodSearchService {
         """
         let userPrompt = "Return up to 5 food items matching \"\(query)\". Prefer common, well-known foods with verified nutrition data."
 
-        let body: [String: Any] = [
-            "model": "sonar",
-            "messages": [
-                ["role": "system", "content": systemPrompt],
-                ["role": "user",   "content": userPrompt]
-            ],
-            "temperature": 0.1
+        let messages: [[String: Any]] = [
+            ["role": "system", "content": systemPrompt],
+            ["role": "user",   "content": userPrompt]
         ]
-
-        var request = URLRequest(url: Self.perplexityURL)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(Self.perplexityKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 20
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let request = try PerplexityClient.buildRequest(messages: messages, temperature: 0.1, timeout: 20)
 
         let (data, urlResponse) = try await URLSession.shared.data(for: request)
         let statusCode = (urlResponse as? HTTPURLResponse)?.statusCode ?? 0
@@ -391,7 +366,7 @@ struct FoodSearchService {
             throw FoodSearchError.httpError(statusCode: statusCode, body: String(data: data, encoding: .utf8) ?? "")
         }
 
-        let apiResponse = try Self.decoder.decode(PerplexityResponse.self, from: data)
+        let apiResponse = try PerplexityClient.decoder.decode(PerplexityClient.Response.self, from: data)
 
         guard let content = apiResponse.choices.first?.message.content else {
             throw FoodSearchError.emptyResponse
@@ -401,17 +376,10 @@ struct FoodSearchService {
         print("[Perplexity] Content: \(content)")
         #endif
 
-        // Extract the JSON object — handles markdown fences and any surrounding prose
-        guard let start = content.firstIndex(of: "{"),
-              let end = content.lastIndex(of: "}"),
-              let jsonData = String(content[start...end]).data(using: .utf8)
-        else {
-            throw FoodSearchError.decodingFailed
-        }
-
         do {
-            let wrapper = try Self.decoder.decode(ItemsWrapper.self, from: jsonData)
-            let valid = wrapper.items.filter { $0.nutritionPer100g.calories > 0 }
+            let jsonData = try PerplexityClient.extractJSON(from: content)
+            let wrapper  = try PerplexityClient.decoder.decode(ItemsWrapper.self, from: jsonData)
+            let valid    = wrapper.items.filter { $0.nutritionPer100g.calories > 0 }
             #if DEBUG
             print("[Perplexity] Decoded \(wrapper.items.count) items, \(valid.count) with calorie data.")
             #endif

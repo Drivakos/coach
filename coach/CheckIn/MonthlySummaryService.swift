@@ -93,42 +93,4 @@ struct MonthlySummaryService {
             .execute()
     }
 
-    // MARK: - Fetch all
-
-    func fetchAll() async throws -> [MonthlySummary] {
-        try await supabase
-            .from("monthly_summaries")
-            .select()
-            .order("month_start", ascending: false)
-            .execute()
-            .value
-    }
-
-    // MARK: - Auto rollup on app launch
-
-    /// Always recomputes the current month. On the 1st, also saves the previous month.
-    func rollUpIfNeeded() async {
-        let today = Date()
-        let cal = Calendar.current
-
-        // Always refresh current month
-        let thisMonthStr = Self.firstDayOfMonthString(of: today)
-        do {
-            try await computeAndSave(monthStart: thisMonthStr)
-        } catch {
-            print("MonthlySummaryService rollUpIfNeeded (current) error:", error)
-        }
-
-        // On 1st of month, also save the previous month in case it was missed
-        guard cal.component(.day, from: today) == 1,
-              let lastMonth = cal.date(byAdding: .month, value: -1, to: cal.startOfDay(for: today))
-        else { return }
-
-        let lastMonthStr = Self.firstDayOfMonthString(of: lastMonth)
-        do {
-            try await computeAndSave(monthStart: lastMonthStr)
-        } catch {
-            print("MonthlySummaryService rollUpIfNeeded (previous) error:", error)
-        }
-    }
 }

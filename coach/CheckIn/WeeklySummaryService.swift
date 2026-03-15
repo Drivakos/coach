@@ -86,7 +86,9 @@ struct WeeklySummaryService {
             avgFatG: avg(dailyFat),
             totalWorkouts: totalWorkouts,
             avgSteps: avgSteps,
-            daysLogged: checkIns.count
+            // daysLogged = days with at least one food entry (used by WeeklyPlanEngine
+            // to assess dietary adherence before adjusting targets)
+            daysLogged: logsByDay.count
         )
 
         try await supabase
@@ -95,44 +97,17 @@ struct WeeklySummaryService {
             .execute()
     }
 
-    // MARK: - Fetch all
-
-    func fetchAll() async throws -> [WeeklySummary] {
-        let results: [WeeklySummary] = try await supabase
+    /// Returns the `limit` most-recent summaries with week_start strictly before `weekStart`,
+    /// ordered newest-first. Used by `WeeklyPlanService` which only needs the last 2.
+    func fetchPast(before weekStart: String, limit: Int) async throws -> [WeeklySummary] {
+        try await supabase
             .from("weekly_summaries")
             .select()
+            .lt("week_start", value: weekStart)
             .order("week_start", ascending: false)
+            .limit(limit)
             .execute()
             .value
-        return results
     }
 
-    // MARK: - Auto rollup on app launch
-
-    /// Always recomputes the current week to keep it fresh.
-    /// On Mondays, also saves the previous week in case it was missed.
-    func rollUpIfNeeded() async {
-        let cal = Calendar(identifier: .iso8601)
-        let today = Date()
-
-        // Always refresh current week
-        let thisWeekStr = CheckInService.mondayString(of: today)
-        do {
-            try await computeAndSave(weekStart: thisWeekStr)
-        } catch {
-            print("WeeklySummaryService rollUpIfNeeded (current) error:", error)
-        }
-
-        // On Mondays, also ensure previous week is saved
-        guard cal.component(.weekday, from: today) == 2,
-              let lastMonday = cal.date(byAdding: .day, value: -7, to: today)
-        else { return }
-
-        let lastMondayStr = CheckInService.dateFormatter.string(from: lastMonday)
-        do {
-            try await computeAndSave(weekStart: lastMondayStr)
-        } catch {
-            print("WeeklySummaryService rollUpIfNeeded (previous) error:", error)
-        }
-    }
 }
