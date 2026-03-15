@@ -42,7 +42,9 @@ struct coachApp: App {
             .task(id: session.state) {
                 guard session.state == .signedIn else { return }
                 appState.listenForNotificationTaps()
-                await appState.loadProfile()
+                async let profile: Void = appState.loadProfile()
+                async let country: Void = appState.updateCountryCode()
+                _ = await (profile, country)
                 await NotificationService.shared.requestPermissionAndSchedule()
                 // Plan generation now runs server-side via pg_cron every Monday.
                 // The app just reads the pre-generated plan from the DB.

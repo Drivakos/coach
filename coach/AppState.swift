@@ -100,6 +100,22 @@ final class AppState {
         }
     }
 
+    /// Saves the device's locale region (e.g. "Greece") to the user's profile.
+    /// Called once per sign-in so the plan engine can suggest locally available foods.
+    func updateCountryCode() async {
+        guard let regionCode = Locale.current.region?.identifier else { return }
+        let countryName = Locale(identifier: "en_US").localizedString(forRegionCode: regionCode) ?? regionCode
+        do {
+            struct Update: Encodable { let country_code: String }
+            try await supabase
+                .from("users")
+                .update(Update(country_code: countryName))
+                .execute()
+        } catch {
+            print("AppState updateCountryCode error:", error)
+        }
+    }
+
     func saveWeightUnit(_ unit: WeightUnit) async {
         weightUnit = unit
         do {
